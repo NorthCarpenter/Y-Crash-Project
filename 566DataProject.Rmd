@@ -1,0 +1,123 @@
+---
+title: "566 Project Data Exploration"
+author: "North Carpenter"
+date: "2026-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_knit$set(root.dir = '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project')
+
+library(dplyr)
+library(tidyr)
+library(sf)
+library(ggplot2)
+```
+
+Importing Data
+
+```{r}
+#files <- list.files("/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2023NationalCSV", pattern = "\\.csv$", full.names = TRUE)
+
+#list2023 <- lapply(files, read.csv)
+
+path <- '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2023NationalCSV/accident.csv'
+accident2023 <- read.csv(path, header = TRUE)
+
+path <- '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2012NationalCSV/ACCIDENT.csv'
+accident2012 <- read.csv(path, header = TRUE)
+```
+
+```{r}
+head(accident2023)
+```
+
+Pretty Picture
+```{r}
+accident2023noLat <- accident2023 |>
+  filter(STATENAME != "Alaska",
+         LATITUDE > 24, LATITUDE < 72,
+         LONGITUD > -180, LONGITUD < -65)
+
+
+my_sf <- st_as_sf(accident2023noLat, coords = c('LONGITUD', 'LATITUDE'))
+
+my_sf <- st_set_crs(my_sf, 4326)
+
+#Plot it:
+
+ggplot(my_sf) + 
+  geom_sf(aes(color = STATENAME), size = 0.01) +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+accident2023seattle <- accident2023 |>
+  filter(STATENAME == "Washington",
+         LATITUDE > 24, LATITUDE < 72,
+         LONGITUD > -180, LONGITUD < -65)
+
+axSeattleMap <- st_as_sf(accident2023seattle, coords = c('LONGITUD', 'LATITUDE'))
+
+axSeattleMap <- st_set_crs(axSeattleMap, 4326)
+
+#Plot it:
+
+ggplot(axSeattleMap) + 
+  geom_sf(aes(color = FATALS), size = 1) +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+accident2023 %>% filter(FATALS > 5)
+```
+
+
+```{r}
+fatals_table <- accident2023 |>
+  group_by(STATENAME) |>
+  mutate(total = n()) |>
+  group_by(STATENAME, FATALS) |>  
+  summarise(pct = n() / first(total), 
+            total = first(total),        # keep total
+            .groups = "drop") |>
+  filter(FATALS >= 1) |>
+  tidyr::pivot_wider(
+    names_from = FATALS,
+    values_from = pct,
+    names_prefix = "fatals_",
+    values_fill = 0
+  )
+
+fatals_table
+```
+
+
+```{r}
+nrow(accident2023)
+
+missingUniuqeEval <- function(df)
+{
+  df <- df %>%
+    mutate(across(everything(), as.character)) %>%
+    pivot_longer(everything(), names_to = "column", values_to = "value") %>%
+    group_by(column) %>%
+    summarise(
+      num_blank = sum(is.na(value) | value == "", na.rm = TRUE),
+      num_None = sum(is.na(value) | value == "None", na.rm = TRUE),
+      num_unique  = n_distinct(value)
+    )
+  return(df)
+}
+
+uniques2023 <- lapply(list2023, function(df) missingUniuqeEval(df))
+```
+
+```{r}
+uniques2023[9]
+```
+
