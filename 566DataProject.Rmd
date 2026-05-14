@@ -8,7 +8,8 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-knitr::opts_knit$set(root.dir = '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project')
+# Set working directory for knitting to file location
+knitr::opts_knit$set(root.dir = dirname(rstudioapi::getSourceEditorContext()$path))
 
 library(dplyr)
 library(tidyr)
@@ -16,25 +17,57 @@ library(sf)
 library(ggplot2)
 ```
 
-Importing Data
+# Importing Data
 
 ```{r}
-#files <- list.files("/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2023NationalCSV", pattern = "\\.csv$", full.names = TRUE)
+# This block will import key data. It is imparative that you structure your
+# files in the same way or this will not work. Set up this file in the 
+# Y-crash-project folder somewhere on your computer and at the same level of the 
+# project folder put the 566 project data folder.
+#
+# You should be able to import the files in 566 in this chunk only without issue.
 
-#list2023 <- lapply(files, read.csv)
+setwd("../566 Project Data") # Do not touch
 
-path <- '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2023NationalCSV/accident.csv'
-accident2023 <- read.csv(path, header = TRUE)
-
-path <- '/Users/NorthCarpenter/Documents/Sort/School/MS Stats/566 Project/FARS2012NationalCSV/ACCIDENT.csv'
-accident2012 <- read.csv(path, header = TRUE)
+# Import any csv's here
+accident2023 <- read.csv("FARS2023NationalCSV/accident.csv")
+drugs2023 <- read.csv("FARS2023NationalCSV/drugs.csv")
 ```
 
 ```{r}
 head(accident2023)
 ```
 
-Pretty Picture
+# Data Overiview
+
+```{r}
+looknon <- function(df)
+{
+  # Take a DF and returns a new df that counts na/"" in one column and 
+  # "None"/"none" in another column. Also returns the number of unique values 
+  # per column.
+  
+  df <- df |>
+    mutate(across(everything(), as.character)) %>% #make everything char for ==
+    pivot_longer(everything(), names_to = "column", values_to = "value") %>%
+    group_by(column) %>% # set up groups
+    summarise(
+      num_missing = sum(is.na(value) | value == "", na.rm = TRUE),
+      num_None = sum(value == "None" | value == "none", na.rm = TRUE),
+      num_unique  = n_distinct(value)
+    ) #summarize to these col
+  return(df)
+}
+```
+
+```{r}
+looknon(accident2023)
+```
+
+
+
+
+# Pretty Pictures
 ```{r}
 accident2023noLat <- accident2023 |>
   filter(STATENAME != "Alaska",
@@ -56,7 +89,7 @@ ggplot(my_sf) +
 
 ```{r}
 accident2023seattle <- accident2023 |>
-  filter(STATENAME == "Washington",
+  filter(STATENAME == "Connecticut",
          LATITUDE > 24, LATITUDE < 72,
          LONGITUD > -180, LONGITUD < -65)
 
@@ -67,57 +100,18 @@ axSeattleMap <- st_set_crs(axSeattleMap, 4326)
 #Plot it:
 
 ggplot(axSeattleMap) + 
-  geom_sf(aes(color = FATALS), size = 1) +
-  theme(legend.position = "none")
+  geom_sf(aes(color = FATALS), size = 1)
 
-```
-
-```{r}
-accident2023 %>% filter(FATALS > 5)
 ```
 
 
 ```{r}
-fatals_table <- accident2023 |>
-  group_by(STATENAME) |>
-  mutate(total = n()) |>
-  group_by(STATENAME, FATALS) |>  
-  summarise(pct = n() / first(total), 
-            total = first(total),        # keep total
-            .groups = "drop") |>
-  filter(FATALS >= 1) |>
-  tidyr::pivot_wider(
-    names_from = FATALS,
-    values_from = pct,
-    names_prefix = "fatals_",
-    values_fill = 0
-  )
+head(drugs2023)
 
-fatals_table
+drugtype <- drugs2023 |> 
+  group_by(DRUGRESNAME) |> 
+  summarise(n = n()) |> 
+  mutate(percent = n / sum(n))
 ```
 
-
-```{r}
-nrow(accident2023)
-
-missingUniuqeEval <- function(df)
-{
-  df <- df %>%
-    mutate(across(everything(), as.character)) %>%
-    pivot_longer(everything(), names_to = "column", values_to = "value") %>%
-    group_by(column) %>%
-    summarise(
-      num_blank = sum(is.na(value) | value == "", na.rm = TRUE),
-      num_None = sum(is.na(value) | value == "None", na.rm = TRUE),
-      num_unique  = n_distinct(value)
-    )
-  return(df)
-}
-
-uniques2023 <- lapply(list2023, function(df) missingUniuqeEval(df))
-```
-
-```{r}
-uniques2023[9]
-```
 
