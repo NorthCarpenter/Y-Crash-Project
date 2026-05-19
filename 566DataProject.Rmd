@@ -32,6 +32,12 @@ setwd("../566 Project Data") # Do not touch
 # Import any csv's here
 accident2023 <- read.csv("FARS2023NationalCSV/accident.csv")
 person2023 <- read.csv("FARS2023NationalCSV/PERSON.csv")
+vehicle2023 <- read.csv("FARS2023NationalCSV/VEHICLE.csv")
+drdistract2023 <- read.csv("FARS2023NationalCSV/distract.csv")
+factor2023 <- read.csv("FARS2023NationalCSV/factor.csv")
+nmCrash2023 <- read.csv("FARS2023NationalCSV/nmcrash.csv")
+
+# Just Curios
 drugs2023 <- read.csv("FARS2023NationalCSV/drugs.csv")
 ```
 
@@ -65,8 +71,16 @@ looknon <- function(df)
 }
 ```
 
+
+## Acidedent Summary
 ```{r}
 looknon(accident2023)
+
+vehicle2023 |>
+  count(VPAVETYPNAME)
+
+vehicle2023 |>
+  count(VSURCONDNAME)
 ```
 
 ## Pedestrians and Injuries
@@ -80,6 +94,22 @@ person2023 |>
     values_fill = 0
   )
 ```
+
+## Person Type
+```{r}
+person2023 |>
+  count(PER_TYPNAME)
+
+person2023 |>
+  group_by(PER_TYPNAME, DRINKINGNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = DRINKINGNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
 
 ## Alcohol
 ```{r}
@@ -146,6 +176,33 @@ axSeattleMap <- st_set_crs(axSeattleMap, 4326)
 ggplot(axSeattleMap) + 
   geom_sf(aes(color = FATALS), size = 1)
 
+```
+
+# Cleaning
+## Setting Up Variables to Keep
+```{r}
+merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
+accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE", "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND", "WEATHER")
+vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP", "VSURCOND", "P_CRASH1")
+person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO", "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN", "LAG_HRS", "LAG_MINS") #Record Sex of Driver Only, fix type, fix type, complex death after indicator
+fact_keep <- c("VEHICLECC")
+dist_keep <- c("DRDISTRACT")
+NMCC_keep <- c("NMCC")
+```
+
+## Triming Files
+```{r}
+data_list <- list(accident2023, vehicle2023, person2023, factor2023, drdistract2023, nmCrash2023)
+var_list <- list(accident_keep, vehicle_keep, person_keep, fact_keep, dist_keep, NMCC_keep)
+
+data_list <- Map(function(df, vars){
+  df %>% select(any_of(c(merging_Vars, vars)))
+}, data_list, var_list)
+```
+
+## Check Worked
+```{r}
+lapply(data_list, head)
 ```
 
 
