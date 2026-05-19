@@ -31,11 +31,16 @@ setwd("../566 Project Data") # Do not touch
 
 # Import any csv's here
 accident2023 <- read.csv("FARS2023NationalCSV/accident.csv")
+person2023 <- read.csv("FARS2023NationalCSV/PERSON.csv")
 drugs2023 <- read.csv("FARS2023NationalCSV/drugs.csv")
 ```
 
 ```{r}
 head(accident2023)
+```
+
+```{r}
+head(person2023)
 ```
 
 # Data Overiview
@@ -64,7 +69,16 @@ looknon <- function(df)
 looknon(accident2023)
 ```
 
-
+```{r}
+person2023 |>
+  group_by(PER_TYPNAME, INJ_SEVNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = INJ_SEVNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
 
 
 # Pretty Pictures
