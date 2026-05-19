@@ -69,6 +69,7 @@ looknon <- function(df)
 looknon(accident2023)
 ```
 
+## Pedestrians and Injuries
 ```{r}
 person2023 |>
   group_by(PER_TYPNAME, INJ_SEVNAME) |>
@@ -80,6 +81,35 @@ person2023 |>
   )
 ```
 
+## Alcohol
+```{r}
+person2023 |>
+  count(ALC_RESNAME)
+
+person2023 |>
+  count(DRINKINGNAME)
+
+person2023 |>
+  group_by(PER_TYPNAME, DRINKINGNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = DRINKINGNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
+## Drugs
+```{r}
+drugtype <- drugs2023 |> 
+  group_by(DRUGRESNAME) |> 
+  summarise(n = n()) |> 
+  mutate(percent = n / sum(n))
+drugtype
+
+drugs2023 |>
+  count(DRUGRESNAME)
+```
 
 # Pretty Pictures
 ```{r}
@@ -116,16 +146,6 @@ axSeattleMap <- st_set_crs(axSeattleMap, 4326)
 ggplot(axSeattleMap) + 
   geom_sf(aes(color = FATALS), size = 1)
 
-```
-
-
-```{r}
-head(drugs2023)
-
-drugtype <- drugs2023 |> 
-  group_by(DRUGRESNAME) |> 
-  summarise(n = n()) |> 
-  mutate(percent = n / sum(n))
 ```
 
 
