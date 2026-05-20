@@ -8,9 +8,6 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# Set working directory for knitting to file location
-knitr::opts_knit$set(root.dir = dirname(rstudioapi::getSourceEditorContext()$path))
-
 library(dplyr)
 library(tidyr)
 library(sf)
@@ -27,26 +24,18 @@ library(ggplot2)
 #
 # You should be able to import the files in 566 in this chunk only without issue.
 
-setwd("../566 Project Data") # Do not touch
+# Importing Data
 
 # Import any csv's here
-accident2023 <- read.csv("FARS2023NationalCSV/accident.csv")
-person2023 <- read.csv("FARS2023NationalCSV/PERSON.csv")
-vehicle2023 <- read.csv("FARS2023NationalCSV/VEHICLE.csv")
-drdistract2023 <- read.csv("FARS2023NationalCSV/distract.csv")
-factor2023 <- read.csv("FARS2023NationalCSV/factor.csv")
-nmCrash2023 <- read.csv("FARS2023NationalCSV/nmcrash.csv")
+accident2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/accident.csv")
+person2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/PERSON.csv")
+vehicle2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/VEHICLE.csv")
+drdistract2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/distract.csv")
+factor2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/factor.csv")
+nmCrash2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/nmcrash.csv")
 
 # Just Curios
-drugs2023 <- read.csv("FARS2023NationalCSV/drugs.csv")
-```
-
-```{r}
-head(accident2023)
-```
-
-```{r}
-head(person2023)
+drugs2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/drugs.csv")
 ```
 
 # Data Overiview
@@ -70,7 +59,6 @@ looknon <- function(df)
   return(df)
 }
 ```
-
 
 ## Acidedent Summary
 ```{r}
@@ -205,4 +193,20 @@ data_list <- Map(function(df, vars){
 lapply(data_list, head)
 ```
 
+## Joining
+```{r}
+crashes2023 <- left_join(data_list[[3]], data_list[[1]], by = join_by(ST_CASE))
+
+data_list[[6]] |>
+  filter(ST_CASE == 10014, PER_NO == 1)
+
+person2023 |>
+  filter(ST_CASE == 10014)
+
+vehicle2023 |> 
+  count(ST_CASE) |> 
+  arrange(desc(n))
+
+crashes2023 <- left_join(crashes2023, data_list[[6]], by = join_by(ST_CASE, PER_NO))
+```
 
