@@ -170,8 +170,8 @@ ggplot(axSeattleMap) +
 ## Setting Up Variables to Keep
 ```{r}
 merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
-accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE", "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND", "WEATHER")
-vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP", "VSURCOND", "P_CRASH1")
+accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE", "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND", "WEATHER", "ARR_HOUR", "ARR_MIN")
+vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP", "VSURCOND", "P_CRASH1", "M_HARM")
 person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO", "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN", "LAG_HRS", "LAG_MINS") #Record Sex of Driver Only, fix type, fix type, complex death after indicator
 fact_keep <- c("VEHICLECC")
 dist_keep <- c("DRDISTRACT")
@@ -197,16 +197,19 @@ lapply(data_list, head)
 ```{r}
 crashes2023 <- left_join(data_list[[3]], data_list[[1]], by = join_by(ST_CASE))
 
-data_list[[6]] |>
-  filter(ST_CASE == 10014, PER_NO == 1)
-
-person2023 |>
-  filter(ST_CASE == 10014)
+# in 2023 2 pedestrians were never killed in the same accident
+crashes2023 |>
+  group_by(ST_CASE, PER_TYP, INJ_SEV) |>
+  summarise(n = n(), .groups = "drop") |>
+  filter(PER_TYP == 5, INJ_SEV == 4) |>
+  arrange(desc(n))
 
 vehicle2023 |> 
   count(ST_CASE) |> 
   arrange(desc(n))
 
-crashes2023 <- left_join(crashes2023, data_list[[6]], by = join_by(ST_CASE, PER_NO))
+crashes2023 <- left_join(crashes2023, data_list[[6]], by = join_by(ST_CASE, PER_NO, VEH_NO))
+
+crashes2023 <- left_join()
 ```
 
