@@ -33,6 +33,8 @@ vehicle2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/VEHICLE.csv")
 drdistract2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/distract.csv")
 factor2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/factor.csv")
 nmCrash2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/nmcrash.csv")
+cEvent2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/cevent.csv")
+vission2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/vision.csv")
 
 # Just Curios
 drugs2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/drugs.csv")
@@ -60,9 +62,21 @@ looknon <- function(df)
 }
 ```
 
-## Acidedent Summary
+## Vission
 ```{r}
-looknon(accident2023)
+countVission <- vission2023 |>
+  count(VISION)
+countVission
+sum(countVission$n) - 54793
+
+3751 / sum(countVission$n)
+```
+
+
+## Vehicle Stats
+```{r}
+vehicle2023 |>
+  count(M_HARM)
 
 vehicle2023 |>
   count(VPAVETYPNAME)
@@ -70,6 +84,27 @@ vehicle2023 |>
 vehicle2023 |>
   count(VSURCONDNAME)
 ```
+
+
+## Acidedent Summary
+```{r}
+looknon(accident2023)
+
+```
+
+## veVent File
+```{r}
+head(veVent2023)
+
+veVent2023 |>
+  group_by(ST_CASE)|>
+  summarise(n = n(), .groups = "drop")
+
+veVent2023 |>
+  group_by(SOE)|>
+  summarise(n = n(), .groups = "drop")
+```
+
 
 ## Pedestrians and Injuries
 ```{r}
@@ -173,6 +208,7 @@ merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
 accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE", "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND", "WEATHER", "ARR_HOUR", "ARR_MIN")
 vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP", "VSURCOND", "P_CRASH1", "M_HARM")
 person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO", "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN", "LAG_HRS", "LAG_MINS") #Record Sex of Driver Only, fix type, fix type, complex death after indicator
+vision_keep <- c("VISION")
 fact_keep <- c("VEHICLECC")
 dist_keep <- c("DRDISTRACT")
 NMCC_keep <- c("NMCC")
@@ -180,8 +216,8 @@ NMCC_keep <- c("NMCC")
 
 ## Triming Files
 ```{r}
-data_list <- list(accident2023, vehicle2023, person2023, factor2023, drdistract2023, nmCrash2023)
-var_list <- list(accident_keep, vehicle_keep, person_keep, fact_keep, dist_keep, NMCC_keep)
+data_list <- list(accident2023, vehicle2023, person2023, factor2023, drdistract2023, nmCrash2023, vission2023)
+var_list <- list(accident_keep, vehicle_keep, person_keep, fact_keep, dist_keep, NMCC_keep, vision_keep)
 
 data_list <- Map(function(df, vars){
   df %>% select(any_of(c(merging_Vars, vars)))
@@ -193,7 +229,7 @@ data_list <- Map(function(df, vars){
 lapply(data_list, head)
 ```
 
-## Joining
+## Joining Non-Vehicle Files
 ```{r}
 crashes2023 <- left_join(data_list[[3]], data_list[[1]], by = join_by(ST_CASE))
 
@@ -209,7 +245,29 @@ vehicle2023 |>
   arrange(desc(n))
 
 crashes2023 <- left_join(crashes2023, data_list[[6]], by = join_by(ST_CASE, PER_NO, VEH_NO))
+```
 
-crashes2023 <- left_join()
+## Dealing with Vehicles
+
+The person level data is associate with the vehicle the person was in at the time of the accident. For pedestrians that means they are always in their own vehicle with a bunch of n/as listed. We need each pedestrian file incident to be associated with the vehicle that killed/injured them. In doing so we need to list vehicles for other accidents or have a bunch of perfectly correlated variables and loose useful information for persons in other accidents. For accidents with pedestrians I will join the vehicle with "most harmful event" listed as "pedestrian" for all others I will like the first vehicle to act in the sequence of events listed in veVent.
+
+Our hierarchy is simply ordered 
+
+```{r}
+# Get vehicle number for first vehicle to act in the event order
+acLVLcEvent <- pivot_wider(cEvent2023, names_from = EVENTNUM, values_from = VNUMBER1)
+acLVLcEvent <- acLVLcEvent %>% filter(!is.na(`1`))
+acLVLcEvent <- acLVLcEvent |> rename('vEvent1' = '1')
+acLVLcEvent <- acLVLcEvent |> subset(select = c('ST_CASE', 'vEvent1'))
+head(acLVLcEvent)
+
+# Dropping all rows not the initiating vehicle
+crashInishator <- left_join(data_list[[2]], acLVLcEvent, by = 'ST_CASE')
+crashInishator <- crashInishator %>% filter(vEvent1 == VEH_NO)
+
+# Join other vehicle factors to sparce vehicle matrix
+crashInishator %>%
+  
+
 ```
 
