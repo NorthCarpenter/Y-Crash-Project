@@ -89,18 +89,17 @@ vehicle2023 |>
 ## Acidedent Summary
 ```{r}
 looknon(accident2023)
-
 ```
 
 ## veVent File
 ```{r}
-head(veVent2023)
+head(cEvent2023)
 
-veVent2023 |>
+cEvent2023 |>
   group_by(ST_CASE)|>
   summarise(n = n(), .groups = "drop")
 
-veVent2023 |>
+cEvent2023 |>
   group_by(SOE)|>
   summarise(n = n(), .groups = "drop")
 ```
@@ -229,45 +228,265 @@ data_list <- Map(function(df, vars){
 lapply(data_list, head)
 ```
 
+## Creating Variables For Joins
+Dealing with necessary variable manipulation prior to joining. Some variables have multiple entries for the unit they represent. Here I investigate that and transform the variables so the sets can be merged. See "Created Variable Dictionary" Google doc for a condensed description of what is done below.
+### NMCrash
+```{r}
+data_list[[6]] %>% # There are multiple entries per combo of case, person, vehicle
+  group_by(ST_CASE, PER_NO, VEH_NO) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(desc(n)) %>%
+  count(n)
+
+data_list[[6]] %>% # base frequency in unpivoted dataset
+  count(NMCC)
+
+wideNM <- data_list[[6]] %>% # Pivoting data set to have unique columns and correct number of rows.
+  mutate(NMCC = if_else(NMCC == 0, 101, NMCC)) %>%
+  pivot_wider(
+    id_cols = c(ST_CASE, PER_NO, VEH_NO),
+    names_from = NMCC,
+    values_from = NMCC,
+    values_fill = 0,
+    values_fn = max
+  )
+
+uniteCount <- wideNM %>% # creating a data set of unique combos
+  mutate(flag = if_else(
+    rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(2, 3, 11, 12))) > 0, 1, 0
+  )) %>%
+  unite("combo", -c(ST_CASE, PER_NO, VEH_NO, flag), sep = "_") %>%
+  count(combo, flag, sort = TRUE) %>%
+  mutate(pct = n / sum(n) * 100,
+         cum_pct = cumsum(pct))
+
+uniteCount %>%
+  filter(flag == 1) %>%
+  summarise(total_pct = sum(pct))
+
+# DEFFINITIONS OF NEW VARIABLES
+wideNM <- wideNM %>%
+  mutate(
+    NMCCSimple = case_when(
+      rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+      rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(98, 99))) > 0 ~ 5,
+      rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(2))) > 0 ~ 1,
+      rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(19))) > 0 ~ 3,
+      rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(2, 3, 4, 11, 12))) > 0 ~ 3,
+      TRUE ~ 4
+    )
+  )
+
+# Drop Unused columns
+wideNM <- wideNM %>%
+  select(c(ST_CASE, PER_NO, VEH_NO, NMCCSimple))
+```
+
+### Initiating Vehicle Identification
+Making a list of the vehicle that initiate each accident.
+```{r}
+# Get vehicle number for first vehicle to act in the event order
+acLVLcEvent <- pivot_wider(cEvent2023, names_from = EVENTNUM, values_from = VNUMBER1) %>%
+  filter(!is.na(`1`)) %>%
+  rename('vEvent1' = '1') %>%
+  subset(select = c('ST_CASE', 'vEvent1'))
+head(acLVLcEvent)
+
+# Dropping all rows not the initiating vehicle
+crashInishator <- left_join(data_list[[2]], acLVLcEvent, by = 'ST_CASE') %>%
+   filter(vEvent1 == VEH_NO) %>% # Keep only first vehicles
+  select(-vEvent1) # Drop indicator now equal to VEH_NO
+head(crashInishator)
+
+nrow(crashInishator)
+nrow(accident2023) # Yay on record per crash
+```
+
+### Mecanical Issues
+The Factor data set deals with mechanical issues in a vehicle. This data set can record multiple problems per vehicle. Here I look at the frequency of the different combinations of accidents and then decide what to do with them. See Created Variable Dictionary for more details.
+
+```{r}
+# Factor has multiple entries per vehicle. Lets make it binary.
+data_list[[4]] |>
+  count(ST_CASE) # Illustrating issue
+
+data_list[[4]] |>
+  count(VEHICLECC) # not many instances of most
+
+wideFac <- data_list[[4]] %>% # Pivoting data set to have unique columns and correct number of rows.
+  mutate(VEHICLECC = if_else(VEHICLECC == 0, 101, VEHICLECC)) %>%
+  pivot_wider(
+    id_cols = c(ST_CASE, VEH_NO),
+    names_from = VEHICLECC,
+    values_from = VEHICLECC,
+    values_fill = 0,
+    values_fn = max
+  )
+
+uniteCountFac <- wideFac %>% # creating a data set of unique combos
+  #mutate(flag = if_else(
+    #rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(2, 3, 11, 12))) > 0, 1, 0
+  #)) %>%
+  unite("combo", -c(ST_CASE, VEH_NO), sep = "_") %>%
+  count(combo, sort = TRUE) %>%
+  mutate(pct = n / sum(n) * 100,
+         cum_pct = cumsum(pct))
+
+# THIS IS INCREDIBLY SPARCE! 98.07548% are unknown/non-noted
+
+# Barbarize if there is an issue at all
+data_list[[4]] <- data_list[[4]] |>
+  mutate(MECISSUE = case_when(
+    VEHICLECC == 0 ~ 0, # No mechanical Issue
+    VEHICLECC %in% c(98, 99) ~ 2, # Unknown/not reported
+    TRUE ~ 1 # Mechanical Issue
+  )) %>%
+  select(-VEHICLECC) %>%
+  distinct()
+
+data_list[[4]] %>%
+  count(MECISSUE)
+
+data_list[[4]] %>%
+  count(ST_CASE) %>%
+  arrange(desc(n))
+```
+
+### Distraction Issues
+The distractions can have multiple per vehicle. Here I look at their unique combinations and transform this into one variable.
+
+```{r}
+# Multiple Distractions listed
+
+data_list[[5]] |>
+  count(ST_CASE)
+
+data_list[[5]] |>
+  count(DRDISTRACT)
+
+wideDis <- data_list[[5]] %>% # Pivoting data set to have unique columns and correct number of rows.
+  mutate(DRDISTRACT = if_else(DRDISTRACT == 0, 101, DRDISTRACT)) %>%
+  pivot_wider(
+    id_cols = c(ST_CASE, VEH_NO),
+    names_from = DRDISTRACT,
+    values_from = DRDISTRACT,
+    values_fill = 0,
+    values_fn = max
+  )
+
+uniteCountDIS <- wideDis %>% # creating a data set of unique combos
+  #mutate(flag = if_else(
+    #rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(2, 3, 11, 12))) > 0, 1, 0
+  #)) %>%
+  unite("combo", -c(ST_CASE, VEH_NO), sep = "_") %>%
+  count(combo, sort = TRUE) %>%
+  mutate(pct = n / sum(n) * 100,
+         cum_pct = cumsum(pct))
+
+data_list[[5]] <- data_list[[5]] |>
+  mutate(DISTRACT = case_when(
+    DRDISTRACT == 0 ~ 0, # No Distraction
+    DRDISTRACT %in% c(16) ~ 2, # Driver not present/unknown if present
+    DRDISTRACT %in% c(96,99) ~ 3, # Unknown/not reported
+    TRUE ~ 1 # Driver distracted
+  )) %>%
+  distinct()
+
+data_list[[5]] %>%
+  count(ST_CASE) %>%
+  arrange(desc(n))
+```
+
+
+### Vision Issue
+```{r}
+data_list[[7]] |>
+  count(ST_CASE)
+
+data_list[[7]] |>
+  count(VISION)
+
+wideVIS <- data_list[[7]] %>% # Pivoting data set to have unique columns and correct number of rows.
+  mutate(VISION = if_else(VISION == 0, 101, VISION)) %>%
+  pivot_wider(
+    id_cols = c(ST_CASE, VEH_NO),
+    names_from = VISION,
+    values_from = VISION,
+    values_fill = 0,
+    values_fn = max
+  )
+
+uniteCountVIS<- wideVIS %>% # creating a data set of unique combos
+  #mutate(flag = if_else(
+    #rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(2, 3, 11, 12))) > 0, 1, 0
+  #)) %>%
+  unite("combo", -c(ST_CASE, VEH_NO), sep = "_") %>%
+  count(combo, sort = TRUE) %>%
+  mutate(pct = n / sum(n) * 100,
+         cum_pct = cumsum(pct))
+
+data_list[[7]] <- data_list[[7]] |>
+  mutate(VIS = case_when(
+    VISION == 0 ~ 0, # No
+    VISION %in% c(95) ~ 2, #Driver not present/unknown if not present
+    VISION %in% c(99) ~ 3, #Unknown
+    TRUE ~ 1 # Vision obscured
+  )) %>%
+  distinct()
+
+data_list[[7]] %>%
+  count(ST_CASE) %>%
+  arrange(desc(n))
+```
+
+
+### Checking all Vehicle variables Balpark same
+```{r}
+nrow(data_list[[4]])
+nrow(data_list[[5]])
+nrow(data_list[[7]])
+```
+
 ## Joining Non-Vehicle Files
 ```{r}
 crashes2023 <- left_join(data_list[[3]], data_list[[1]], by = join_by(ST_CASE))
 
-# in 2023 2 pedestrians were never killed in the same accident
-crashes2023 |>
-  group_by(ST_CASE, PER_TYP, INJ_SEV) |>
-  summarise(n = n(), .groups = "drop") |>
-  filter(PER_TYP == 5, INJ_SEV == 4) |>
-  arrange(desc(n))
+crashes2023 %>% # One record per person??
+  group_by(ST_CASE, PER_NO, VEH_NO) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(desc(n)) %>%
+  count(n)
 
-vehicle2023 |> 
-  count(ST_CASE) |> 
-  arrange(desc(n))
+nrow(crashes2023) ## Checking the Number of rows didn't increase
+nrow(person2023)
 
-crashes2023 <- left_join(crashes2023, data_list[[6]], by = join_by(ST_CASE, PER_NO, VEH_NO))
+crashes2023 <- left_join(crashes2023, wideNM, by = join_by(ST_CASE, PER_NO, VEH_NO))
+
+nrow(crashes2023) ## Checking the Number of rows didn't increase
+nrow(person2023)
+
+crashes2023 %>% # One record per person??
+  group_by(ST_CASE, PER_NO, VEH_NO) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  arrange(desc(n)) %>%
+  count(n)
 ```
 
-## Dealing with Vehicles
-
-The person level data is associate with the vehicle the person was in at the time of the accident. For pedestrians that means they are always in their own vehicle with a bunch of n/as listed. We need each pedestrian file incident to be associated with the vehicle that killed/injured them. In doing so we need to list vehicles for other accidents or have a bunch of perfectly correlated variables and loose useful information for persons in other accidents. For accidents with pedestrians I will join the vehicle with "most harmful event" listed as "pedestrian" for all others I will like the first vehicle to act in the sequence of events listed in veVent.
-
-Our hierarchy is simply ordered 
+## Joining Vehicles and Vehicle Level Data
 
 ```{r}
-# Get vehicle number for first vehicle to act in the event order
-acLVLcEvent <- pivot_wider(cEvent2023, names_from = EVENTNUM, values_from = VNUMBER1)
-acLVLcEvent <- acLVLcEvent %>% filter(!is.na(`1`))
-acLVLcEvent <- acLVLcEvent |> rename('vEvent1' = '1')
-acLVLcEvent <- acLVLcEvent |> subset(select = c('ST_CASE', 'vEvent1'))
-head(acLVLcEvent)
-
-# Dropping all rows not the initiating vehicle
-crashInishator <- left_join(data_list[[2]], acLVLcEvent, by = 'ST_CASE')
-crashInishator <- crashInishator %>% filter(vEvent1 == VEH_NO)
-
+nrow(crashInishator)
 # Join other vehicle factors to sparce vehicle matrix
-crashInishator %>%
-  
+crashInishator <- left_join(crashInishator, data_list[[4]], by = join_by('ST_CASE', 'VEH_NO'))
+nrow(crashInishator)
+crashInishator1 <- left_join(crashInishator, data_list[[5]], by = join_by('ST_CASE', 'VEH_NO'))
+nrow(crashInishator)
+crashInishator2 <- left_join(crashInishator, data_list[[7]], by = join_by('ST_CASE', 'VEH_NO'))
+nrow(crashInishator)
+```
 
+## Join Vehicle Data to Non-Vehicle Level
+```{r}
+crashes2023test <- left_join(crashes2023, crashInishator, by = join_by('ST_CASE', 'VEH_NO'))
 ```
 
