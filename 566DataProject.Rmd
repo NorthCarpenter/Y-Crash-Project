@@ -523,7 +523,7 @@ head(crashes2023)
 If this entry represents a pedestrian death. See Created Variable Dictionary.
 ```{r}
 crashes2023 <- crashes2023 %>%
-  mutate(PED_DEATH = if_else(PER_TYP == 5 & INJ_SEV == 4, 1, 0))
+  mutate(PED_DEATH = if_else(PER_TYP %in% c(5, 8) & INJ_SEV == 4, 1, 0))
 head(crashes2023)
 
 sum(crashes2023$PED_DEATH)
