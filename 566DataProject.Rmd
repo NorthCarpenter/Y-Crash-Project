@@ -12,6 +12,7 @@ library(dplyr)
 library(tidyr)
 library(sf)
 library(ggplot2)
+library(lubridate)
 ```
 
 # Importing Data
@@ -335,21 +336,24 @@ uniteCountFac <- wideFac %>% # creating a data set of unique combos
 # THIS IS INCREDIBLY SPARCE! 98.07548% are unknown/non-noted
 
 # Barbarize if there is an issue at all
-data_list[[4]] <- data_list[[4]] |>
-  mutate(MECISSUE = case_when(
-    VEHICLECC == 0 ~ 0, # No mechanical Issue
-    VEHICLECC %in% c(98, 99) ~ 2, # Unknown/not reported
-    TRUE ~ 1 # Mechanical Issue
-  )) %>%
-  select(-VEHICLECC) %>%
-  distinct()
+wideFac <- wideFac %>%
+  mutate(
+    MECISSUE = case_when(
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(98, 99))) > 0 ~ 2,
+      TRUE ~ 1
+    )
+  )
 
-data_list[[4]] %>%
+wideFac %>%
   count(MECISSUE)
 
-data_list[[4]] %>%
+wideFac %>%
   count(ST_CASE) %>%
   arrange(desc(n))
+
+wideFac <- wideFac %>%
+  select(c(ST_CASE, VEH_NO, MECISSUE))
 ```
 
 ### Distraction Issues
@@ -383,18 +387,22 @@ uniteCountDIS <- wideDis %>% # creating a data set of unique combos
   mutate(pct = n / sum(n) * 100,
          cum_pct = cumsum(pct))
 
-data_list[[5]] <- data_list[[5]] |>
-  mutate(DISTRACT = case_when(
-    DRDISTRACT == 0 ~ 0, # No Distraction
-    DRDISTRACT %in% c(16) ~ 2, # Driver not present/unknown if present
-    DRDISTRACT %in% c(96,99) ~ 3, # Unknown/not reported
-    TRUE ~ 1 # Driver distracted
-  )) %>%
-  distinct()
+wideDis <- wideDis %>%
+  mutate(
+    DISTRACT = case_when(
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(16))) > 0 ~ 2,
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(96, 99))) > 0 ~ 3,
+      TRUE ~ 1
+    )
+  )
 
-data_list[[5]] %>%
+wideDis %>%
   count(ST_CASE) %>%
   arrange(desc(n))
+
+wideDis <- wideDis %>%
+  select(c(ST_CASE, VEH_NO, DISTRACT))
 ```
 
 
@@ -425,27 +433,35 @@ uniteCountVIS<- wideVIS %>% # creating a data set of unique combos
   mutate(pct = n / sum(n) * 100,
          cum_pct = cumsum(pct))
 
-data_list[[7]] <- data_list[[7]] |>
-  mutate(VIS = case_when(
-    VISION == 0 ~ 0, # No
-    VISION %in% c(95) ~ 2, #Driver not present/unknown if not present
-    VISION %in% c(99) ~ 3, #Unknown
-    TRUE ~ 1 # Vision obscured
-  )) %>%
-  distinct()
+wideVIS <- wideVIS %>%
+  mutate(
+    VIS = case_when(
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(95))) > 0 ~ 2,
+      rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(99))) > 0 ~ 3,
+      TRUE ~ 1
+    )
+  )
 
-data_list[[7]] %>%
+wideVIS %>%
   count(ST_CASE) %>%
   arrange(desc(n))
+
+wideVIS <- wideVIS %>%
+  select(c(ST_CASE, VEH_NO, VIS))
 ```
 
-
-### Checking all Vehicle variables Balpark same
+### Driver Characeristics
 ```{r}
-nrow(data_list[[4]])
-nrow(data_list[[5]])
-nrow(data_list[[7]])
+driverData <- data_list[[3]] %>% 
+  select(c(ST_CASE, PER_NO, VEH_NO, PER_TYP, AGE, SEX, DRUGS)) %>% 
+  filter(PER_TYP == 1) %>%
+  rename(DR_AGE = AGE, DR_SEX = SEX, DR_DRUGS = DRUGS) %>%
+  select(-c(PER_NO, PER_TYP))
+head(driverData)
 ```
+
+
 
 ## Joining Non-Vehicle Files
 ```{r}
@@ -477,16 +493,155 @@ crashes2023 %>% # One record per person??
 ```{r}
 nrow(crashInishator)
 # Join other vehicle factors to sparce vehicle matrix
-crashInishator <- left_join(crashInishator, data_list[[4]], by = join_by('ST_CASE', 'VEH_NO'))
+crashInishator <- left_join(crashInishator, wideFac, by = join_by('ST_CASE', 'VEH_NO'))
 nrow(crashInishator)
-crashInishator1 <- left_join(crashInishator, data_list[[5]], by = join_by('ST_CASE', 'VEH_NO'))
+crashInishator <- left_join(crashInishator, wideDis, by = join_by('ST_CASE', 'VEH_NO'))
 nrow(crashInishator)
-crashInishator2 <- left_join(crashInishator, data_list[[7]], by = join_by('ST_CASE', 'VEH_NO'))
+crashInishator <- left_join(crashInishator, wideVIS, by = join_by('ST_CASE', 'VEH_NO'))
 nrow(crashInishator)
+crashInishator <- left_join(crashInishator, driverData, by = join_by('ST_CASE', 'VEH_NO'))
+nrow(crashInishator)
+
+# Cleaning up columns
+crashInishator <- rename(crashInishator, CrashVehicle = VEH_NO) # make initiation vehicle distinct
+head(crashInishator)
 ```
 
 ## Join Vehicle Data to Non-Vehicle Level
 ```{r}
-crashes2023test <- left_join(crashes2023, crashInishator, by = join_by('ST_CASE', 'VEH_NO'))
+nrow(crashes2023)
+crashes2023 <- left_join(crashes2023, crashInishator, by = join_by('ST_CASE'))
+nrow(crashes2023)
+nrow(person2023)
+head(crashes2023)
+```
+
+
+
+# New Variables
+## PedDeath
+If this entry represents a pedestrian death. See Created Variable Dictionary.
+```{r}
+crashes2023 <- crashes2023 %>%
+  mutate(PED_DEATH = if_else(PER_TYP == 5 & INJ_SEV == 4, 1, 0))
+head(crashes2023)
+
+sum(crashes2023$PED_DEATH)
+```
+
+## Emergency Vehicle Arrival and Death
+Time in minutes until emergency services arrive. See Created Variable Dictionary. Vibe coded and read through.
+```{r}
+# Compute EMSAD (EMS Arrival Difference) variable
+# Goal: categorize whether EMS arrival time matters at the person level
+#
+# IMPORTANT CONTEXT: Deaths can be recorded up to 30 days after the crash.
+# We must use full datetime (year, month, day, hour, minute) for the
+# crash-to-death comparison, not just clock time.
+#
+# Algorithm:
+#   1. If death occurred within 5 minutes of crash → EMSAD = 0
+#      (EMS arrival irrelevant; person died too quickly for EMS to matter)
+#   2. Otherwise → EMSAD = minutes elapsed from crash to EMS arrival
+#      (EMS arrival is still assumed within 24 hours; no date is recorded for it)
+
+crashes2023 <- crashes2023 %>%
+  mutate(
+    # --- Step 1: Build a full datetime for the crash ---
+    # Uses lubridate::make_datetime() to combine the separate date/time
+    # columns into a single POSIXct timestamp for accurate differencing.
+    # Adjust column name prefixes to match your actual crash date columns.
+    crash_datetime = make_datetime(
+      year  = YEAR,
+      month = MONTH,
+      day   = DAY,
+      hour  = HOUR,
+      min   = MINUTE
+    ),
+
+    # --- Step 2: Build a full datetime for the death ---
+    # Death can occur up to 30 days after the crash, so we must include
+    # the death's own YEAR, MONTH, and DAY — not just the time of day.
+    death_datetime = make_datetime(
+      year  = DEATH_YR,
+      month = DEATH_MO,
+      day   = DEATH_DA,
+      hour  = DEATH_HR,
+      min   = DEATH_MN
+    ),
+
+    # --- Step 3: Compute crash-to-death difference in minutes ---
+    # as.numeric(..., units = "mins") gives a plain numeric value,
+    # which is easier to threshold (e.g., <= 5) than a difftime object.
+    crash_to_death_min = as.numeric(
+      difftime(death_datetime, crash_datetime, units = "mins")
+    ),
+
+    # --- Step 4: Convert EMS arrival time to total minutes since midnight ---
+    # EMS arrival has no date, so we use the same midnight-crossing trick
+    # as before: if the arrival clock time is earlier than the crash clock
+    # time, EMS arrived after midnight → add 1440 minutes.
+    # This is valid because EMS arrival is assumed within 24 hours.
+    crash_total_min = HOUR * 60 + MINUTE,
+    ems_total_min   = ARR_HOUR * 60 + ARR_MIN,
+
+    crash_to_ems_min = if_else(
+      ems_total_min >= crash_total_min,
+      ems_total_min - crash_total_min,
+      ems_total_min - crash_total_min + 1440  # EMS arrived after midnight
+    ),
+
+    # --- Step 5: Apply the EMSAD algorithm ---
+    # Rule 1: If the person died within 5 minutes of the crash (regardless
+    #         of what day, since difftime handles the full date span),
+    #         EMS arrival time is immaterial → assign 0.
+    # Rule 2: Otherwise, record how many minutes after the crash EMS arrived,
+    #         so downstream models can assess whether faster response
+    #         could have changed the outcome.
+    EMSAD = if_else(
+      crash_to_death_min <= 5,
+      0,                  # Died too soon; EMS arrival irrelevant
+      crash_to_ems_min    # Minutes from crash until EMS arrived on scene
+    )
+  ) %>%
+
+  # --- Step 6: Drop all intermediate columns used for computation ---
+  select(-crash_datetime, -death_datetime,
+         -crash_to_death_min, -crash_total_min,
+         -ems_total_min, -crash_to_ems_min)
+```
+
+# Dropping Unused Variables
+```{r}
+head(crashes2023)
+ncol(crashes2023)
+
+# Dropping Predictors of outcome
+crashes2023 <- crashes2023 %>%
+  select(-PER_TYP, -INJ_SEV)
+
+# Dropping Variables used to construct other variables but we don't want
+crashes2023 <- crashes2023 %>%
+  select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO, -DEATH_DA, -DEATH_HR, -DEATH_MN, -ARR_HOUR, -ARR_MIN)
+
+# Dropping Non-predictive variables for the victm
+crashes2023 <- crashes2023 %>%
+  select(-SEX)
+
+ncol(crashes2023)
+```
+
+# Export 2023
+Save Data for 2023
+```{r}
+write.csv(crashes2023, "../566 Project Data/crashes2023.csv")
+```
+
+# Drop Data
+```{r}
+rm(list = setdiff(
+  ls()[sapply(ls(), function(x) is.data.frame(get(x)))],  # all dfs in env
+  c("crashes2023")                   # except these
+))
 ```
 
