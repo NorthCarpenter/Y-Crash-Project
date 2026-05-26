@@ -1,0 +1,20 @@
+---
+title: "Summary Stats/Visualizations"
+author: "North Carpenter"
+date: "2026-05-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r, include=FALSE}
+# Importing Data
+crash2023 <- <- read.csv("../566 Project Data/FARS2023NationalCSV/vision.csv")
+```
+
