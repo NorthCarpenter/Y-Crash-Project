@@ -511,44 +511,10 @@ importYears <- function(start, end, files, fileLoc)
   
   return(crashFiles)
 }
-
-# Files for Variables currently used
-files <- c("accident.csv", "PERSON.csv", "VEHICLE.csv", "distract.csv", "factor.csv", "nmcrash.csv", "cevent.csv", "vision.csv")
-fileLoc <- "../566 Project Data"
-
-FARS2023 <- importYears(2023, 2023, files, fileLoc)
-```
-
-## Setting Up Variables to Keep
-```{r}
-merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
-accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE",
-                   "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND",
-                   "WEATHER", "ARR_HOUR", "ARR_MIN")
-vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP",
-                  "VSURCOND", "P_CRASH1", "M_HARM")
-person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
-                 "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
-                 "LAG_HRS", "LAG_MINS")
-vision_keep <- c("VISION")
-fact_keep <- c("VEHICLECC")
-dist_keep <- c("DRDISTRACT")
-NMCC_keep <- c("NMCC")
 ```
 
 ## Triming Files
 ```{r}
-# Map file names to their keep variables
-var_map <- list(
-  "accident.csv" = accident_keep,
-  "VEHICLE.csv"  = vehicle_keep,
-  "PERSON.csv"   = person_keep,
-  "factor.csv"   = fact_keep,
-  "distract.csv" = dist_keep,
-  "nmcrash.csv"  = NMCC_keep,
-  "vision.csv"   = vision_keep
-)
-
 trimYear <- function(crash_data, year, var_map) {
   # Trims a single year of data to only the columns needed for analysis
   # ====================================================================
@@ -586,15 +552,353 @@ trimAllYears <- function(crash_data, start, end, var_map) {
 
 ### Person Level Data
 #### NMCCSimple
+```{r}
+processNMCrash <- function(nm_df) {
+  # Pivots and simplifies nmcrash data into a single categorical column
+  # ====================================================================
+  # Inputs
+  # - nm_df: a single nmcrash data frame with columns ST_CASE, PER_NO, VEH_NO, NMCC
+  # Outputs
+  # - trimmed data frame with ST_CASE, PER_NO, VEH_NO, and NMCCSimple
+  
+  nm_df %>%
+    mutate(NMCC = if_else(NMCC == 0, 101, NMCC)) %>%
+    pivot_wider(
+      id_cols = c(ST_CASE, PER_NO, VEH_NO),
+      names_from = NMCC,
+      values_from = NMCC,
+      values_fill = 0,
+      values_fn = max
+    ) %>%
+    mutate(
+      NMCCSimple = case_when(
+        rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+        rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(98, 99))) > 0 ~ 5,
+        rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(2))) > 0 ~ 1,
+        rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(19))) > 0 ~ 3,
+        rowSums(sapply(select(., -c(ST_CASE, PER_NO, VEH_NO)), `%in%`, c(2, 3, 4, 11, 12))) > 0 ~ 3,
+        TRUE ~ 4
+      )
+    ) %>%
+    select(ST_CASE, PER_NO, VEH_NO, NMCCSimple)
+}
+```
+
+#### Driver Data
+```{r}
+processDriverData <- function(person_df) {
+  # Filters and renames person data to retain only driver-level variables
+  # ======================================================================
+  # Inputs
+  # - person_df: a single person data frame with columns ST_CASE, PER_NO,
+  #              VEH_NO, PER_TYP, AGE, SEX, DRUGS
+  # Outputs
+  # - data frame filtered to drivers only with renamed demographic columns
+
+  person_df %>%
+    filter(PER_TYP == 1) %>%
+    rename(DR_AGE = AGE, DR_SEX = SEX, DR_DRUGS = DRUGS) %>%
+    select(ST_CASE, VEH_NO, DR_AGE, DR_SEX, DR_DRUGS)
+}
+```
 
 ### Vehicle Level Data
-#### MECISSUE
-#### DISTRACT
-#### VIS
+Identifying First Vehicle in the Crash
+```{r}
+processInitiatingVehicle <- function(cevent_df, vehicle_df) {
+  # Identifies and isolates the initiating vehicle for each crash event
+  # ===================================================================
+  # Inputs
+  # - cevent_df:  a single cevent data frame with columns ST_CASE, EVENTNUM, VNUMBER1
+  # - vehicle_df: a single vehicle data frame with columns ST_CASE, VEH_NO
+  # Outputs
+  # - vehicle data frame filtered to only the first vehicle in each crash event
 
-## Joins
+  first_vehicle <- cevent_df %>%
+    pivot_wider(names_from = EVENTNUM, values_from = VNUMBER1) %>%
+    filter(!is.na(`1`)) %>%
+    rename(vEvent1 = `1`) %>%
+    select(ST_CASE, vEvent1)
+
+  vehicle_df %>%
+    left_join(first_vehicle, by = "ST_CASE") %>%
+    filter(vEvent1 == VEH_NO) %>%
+    select(-vEvent1)
+}
+```
+
+#### MECISSUE
+```{r}
+processMechanicalIssue <- function(factor_df) {
+  # Pivots and simplifies vehicle factor data into a single mechanical issue indicator
+  # ==================================================================================
+  # Inputs
+  # - factor_df: a single factor data frame with columns ST_CASE, VEH_NO, VEHICLECC
+  # Outputs
+  # - trimmed data frame with ST_CASE, VEH_NO, and MECISSUE
+
+  factor_df %>%
+    mutate(VEHICLECC = if_else(VEHICLECC == 0, 101, VEHICLECC)) %>%
+    pivot_wider(
+      id_cols = c(ST_CASE, VEH_NO),
+      names_from = VEHICLECC,
+      values_from = VEHICLECC,
+      values_fill = 0,
+      values_fn = max
+    ) %>%
+    mutate(
+      MECISSUE = case_when(
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(98, 99))) > 0 ~ 2,
+        TRUE ~ 1
+      )
+    ) %>%
+    select(ST_CASE, VEH_NO, MECISSUE)
+}
+```
+
+#### DISTRACT
+```{r}
+processDistraction <- function(distract_df) {
+  # Pivots and simplifies driver distraction data into a single distraction indicator
+  # ==================================================================================
+  # Inputs
+  # - distract_df: a single distract data frame with columns ST_CASE, VEH_NO, DRDISTRACT
+  # Outputs
+  # - trimmed data frame with ST_CASE, VEH_NO, and DISTRACT
+
+  distract_df %>%
+    mutate(DRDISTRACT = if_else(DRDISTRACT == 0, 101, DRDISTRACT)) %>%
+    pivot_wider(
+      id_cols = c(ST_CASE, VEH_NO),
+      names_from = DRDISTRACT,
+      values_from = DRDISTRACT,
+      values_fill = 0,
+      values_fn = max
+    ) %>%
+    mutate(
+      DISTRACT = case_when(
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(16))) > 0 ~ 2,
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(96, 99))) > 0 ~ 3,
+        TRUE ~ 1
+      )
+    ) %>%
+    select(ST_CASE, VEH_NO, DISTRACT)
+}
+```
+
+#### VIS
+```{r}
+processVision <- function(vision_df) {
+  # Pivots and simplifies driver vision data into a single vision obstruction indicator
+  # ====================================================================================
+  # Inputs
+  # - vision_df: a single vision data frame with columns ST_CASE, VEH_NO, VISION
+  # Outputs
+  # - trimmed data frame with ST_CASE, VEH_NO, and VIS
+
+  vision_df %>%
+    mutate(VISION = if_else(VISION == 0, 101, VISION)) %>%
+    pivot_wider(
+      id_cols = c(ST_CASE, VEH_NO),
+      names_from = VISION,
+      values_from = VISION,
+      values_fill = 0,
+      values_fn = max
+    ) %>%
+    mutate(
+      VIS = case_when(
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(101))) > 0 ~ 0,
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(95))) > 0 ~ 2,
+        rowSums(sapply(select(., -c(ST_CASE, VEH_NO)), `%in%`, c(99))) > 0 ~ 3,
+        TRUE ~ 1
+      )
+    ) %>%
+    select(ST_CASE, VEH_NO, VIS)
+}
+```
+
+## Joins + Prossessing
+```{r}
+mergeYear <- function(df_list, personLVLName = "personLVL.csv") {
+  # Processes and joins all files into a single person level data frame for one year
+  # =================================================================================
+  # Inputs
+  # - df_list:       named list of raw trimmed data frames for one year
+  # - personLVLName: name to save the intermediate person level file under
+  # Outputs
+  # - single flat person level data frame with initiating driver characteristics
+
+  # Step 1: process all file level transformations
+  df_list[["nmcrash.csv"]]  <- processNMCrash(df_list[["nmcrash.csv"]])
+  df_list[["factor.csv"]]   <- processMechanicalIssue(df_list[["factor.csv"]])
+  df_list[["distract.csv"]] <- processDistraction(df_list[["distract.csv"]])
+  df_list[["vision.csv"]]   <- processVision(df_list[["vision.csv"]])
+  df_list[["VEHICLE.csv"]]  <- processInitiatingVehicle(df_list[["cevent.csv"]], df_list[["VEHICLE.csv"]])
+
+  # Step 2: build and save person level file into the list
+  df_list[[personLVLName]] <- df_list[["PERSON.csv"]] %>%
+    left_join(df_list[["accident.csv"]], by = "ST_CASE") %>%
+    left_join(df_list[["nmcrash.csv"]],  by = c("ST_CASE", "VEH_NO", "PER_NO"))
+
+  # Step 3: build driver level file from the person level file
+  df_list[["driverLVL.csv"]] <- processDriverData(df_list[[personLVLName]])
+
+  # Step 4: join initiating vehicle and driver characteristics to each person
+  df_list[[personLVLName]] %>%
+    left_join(df_list[["VEHICLE.csv"]],   by = c("ST_CASE", "VEH_NO")) %>%
+    left_join(df_list[["driverLVL.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
+    left_join(df_list[["factor.csv"]],    by = c("ST_CASE", "VEH_NO")) %>%
+    left_join(df_list[["distract.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
+    left_join(df_list[["vision.csv"]],   by = c("ST_CASE", "VEH_NO"))
+}
+```
 
 ## Full Data Variable Creation
-### PedDeath
-### EMSAD
-##
+```{r}
+addDerivedVariables <- function(crashes_df) {
+  # Adds person and crash level derived variables to the full dataset
+  # =================================================================
+  # Inputs
+  # - crashes_df: full joined data frame with columns PER_TYP, INJ_SEV,
+  #               YEAR, MONTH, DAY, HOUR, MINUTE, DEATH_YR, DEATH_MO,
+  #               DEATH_DA, DEATH_HR, DEATH_MN, ARR_HOUR, ARR_MIN
+  # Outputs
+  # - data frame with two additional columns:
+  #   - PED_DEATH: 1 if row is a pedestrian death, 0 otherwise
+  #   - EMSAD:     0 if person died within 5 min of crash, otherwise
+  #                minutes from crash to EMS arrival
+
+  crashes_df %>%
+    mutate(
+      # --- PED_DEATH ---
+      PED_DEATH = if_else(PER_TYP %in% c(5, 8) & INJ_SEV == 4, 1, 0),
+
+      # --- EMSAD: build intermediate datetimes ---
+      crash_datetime = make_datetime(
+        year  = YEAR,
+        month = MONTH,
+        day   = DAY,
+        hour  = HOUR,
+        min   = MINUTE
+      ),
+      death_datetime = make_datetime(
+        year  = DEATH_YR,
+        month = DEATH_MO,
+        day   = DEATH_DA,
+        hour  = DEATH_HR,
+        min   = DEATH_MN
+      ),
+      crash_to_death_min = as.numeric(
+        difftime(death_datetime, crash_datetime, units = "mins")
+      ),
+      crash_total_min  = HOUR * 60 + MINUTE,
+      ems_total_min    = ARR_HOUR * 60 + ARR_MIN,
+      crash_to_ems_min = if_else(
+        ems_total_min >= crash_total_min,
+        ems_total_min - crash_total_min,
+        ems_total_min - crash_total_min + 1440
+      ),
+
+      # --- EMSAD: final variable ---
+      EMSAD = if_else(
+        crash_to_death_min <= 5,
+        0,
+        crash_to_ems_min
+      )
+    ) %>%
+    select(-crash_datetime, -death_datetime,
+           -crash_to_death_min, -crash_total_min,
+           -ems_total_min, -crash_to_ems_min)
+}
+```
+
+## Drop unused variables
+```{r}
+finalDrops <- function(crashes_df)
+{
+  # Drops variables used for construction, outcome leakage, and non-predictive columns
+  # ====================================================================================
+  # Inputs
+  # - crashes_df: full joined and derived data frame
+  # Outputs
+  # - data frame with only analysis-ready predictor columns retained
+  
+  crashes_df %>%
+    # Dropping Predictors of outcome
+    select(-PER_TYP, -INJ_SEV)%>%
+    # Dropping Variables used to construct other variables but we don't want
+    select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO
+           , -DEATH_DA, -DEATH_HR, -DEATH_MN, -DEATH_TM, -ARR_HOUR,
+           -ARR_MIN, -LAG_HRS, -LAG_MINS) %>%
+    # Dropping Non-predictive variables for the non-driver
+    select(-SEX)
+}
+```
+
+## Total Function Call
+Function to call
+```{r}
+processYears <- function(fileLoc, startYear, endYear) {
+  # Full pipeline from raw CSVs to a clean analysis ready data frame
+  # =================================================================
+  # Inputs
+  # - fileLoc:   path to the project data folder
+  # - startYear: first year to import as integer
+  # - endYear:   last year to import as integer
+  # Outputs
+  # - single clean data frame spanning all years ready for analysis
+
+  files <- c("accident.csv", "PERSON.csv", "VEHICLE.csv", "distract.csv",
+             "factor.csv", "nmcrash.csv", "cevent.csv", "vision.csv")
+  
+  merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
+  accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE",
+                     "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND",
+                     "WEATHER", "ARR_HOUR", "ARR_MIN")
+  vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP",
+                    "VSURCOND", "P_CRASH1", "M_HARM")
+  person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
+                   "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
+                   "LAG_HRS", "LAG_MINS")
+  vision_keep <- c("VISION")
+  fact_keep <- c("VEHICLECC")
+  dist_keep <- c("DRDISTRACT")
+  NMCC_keep <- c("NMCC")
+  
+  # Map file names to their keep variables
+  var_map <- list(
+  "accident.csv" = accident_keep,
+  "VEHICLE.csv"  = vehicle_keep,
+  "PERSON.csv"   = person_keep,
+  "factor.csv"   = fact_keep,
+  "distract.csv" = dist_keep,
+  "nmcrash.csv"  = NMCC_keep,
+  "vision.csv"   = vision_keep
+  )
+
+  # Import and trim all years
+  trimmed_flat <- importYears(startYear, endYear, files, fileLoc) 
+  trimmed_flat <- trimAllYears(trimmed_flat, startYear, endYear, var_map)
+
+  # Process, join within year, and stack all years
+  all_years <- bind_rows(lapply(trimmed_flat, mergeYear))
+
+  # Post-join derived variables and final column drops
+  all_years %>%
+    addDerivedVariables() %>%
+    finalDrops()
+}
+```
+
+# Data Possessing
+```{r}
+fileLoc <- "../566 Project Data"
+```
+
+# Export
+```{r}
+
+```
+
