@@ -862,6 +862,7 @@ processYears <- function(fileLoc, startYear, endYear) {
   person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
                    "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
                    "LAG_HRS", "LAG_MINS")
+  cevenet_keep <- c("EVENTNUM", "")
   vision_keep <- c("VISION")
   fact_keep <- c("VEHICLECC")
   dist_keep <- c("DRDISTRACT")
@@ -875,7 +876,8 @@ processYears <- function(fileLoc, startYear, endYear) {
   "factor.csv"   = fact_keep,
   "distract.csv" = dist_keep,
   "nmcrash.csv"  = NMCC_keep,
-  "vision.csv"   = vision_keep
+  "vision.csv"   = vision_keep,
+  "cevent.csv"   =
   )
 
   # Import and trim all years
