@@ -15,6 +15,178 @@ library(tidyr)
 
 ```{r, include=FALSE}
 # Importing Data
-crash2023 <- <- read.csv("../566 Project Data/FARS2023NationalCSV/vision.csv")
+# Clean Data
+crash2023 <-read.csv("../566 Project Data/crashes2023.csv")
+head(crash2023)
+crash2023 <- crash2023 %>%
+  select(-X)
+
+# General Data Sets
+accident2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/accident.csv")
+person2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/PERSON.csv")
+drugs2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/drugs.csv")
+
+colnames(crash2023)
+```
+
+# Data Overiview
+
+```{r}
+looknon <- function(df)
+{
+  # Take a DF and returns a new df that counts na/"" in one column and 
+  # "None"/"none" in another column. Also returns the number of unique values 
+  # per column.
+  
+  df <- df |>
+    mutate(across(everything(), as.character)) %>% #make everything char for ==
+    pivot_longer(everything(), names_to = "column", values_to = "value") %>%
+    group_by(column) %>% # set up groups
+    summarise(
+      num_missing = sum(is.na(value) | value == "", na.rm = TRUE),
+      num_None = sum(value == "None" | value == "none", na.rm = TRUE),
+      num_unique  = n_distinct(value)
+    ) #summarize to these col
+  return(df)
+}
+```
+
+## Vission
+```{r}
+countVission <- vission2023 |>
+  count(VISION)
+countVission
+sum(countVission$n) - 54793
+
+3751 / sum(countVission$n)
+```
+
+
+## Vehicle Stats
+```{r}
+vehicle2023 |>
+  count(M_HARM)
+
+vehicle2023 |>
+  count(VPAVETYPNAME)
+
+vehicle2023 |>
+  count(VSURCONDNAME)
+```
+
+
+## Acidedent Summary
+```{r}
+looknon(accident2023)
+```
+
+## veVent File
+```{r}
+head(cEvent2023)
+
+cEvent2023 |>
+  group_by(ST_CASE)|>
+  summarise(n = n(), .groups = "drop")
+
+cEvent2023 |>
+  group_by(SOE)|>
+  summarise(n = n(), .groups = "drop")
+```
+
+
+## Pedestrians and Injuries
+```{r}
+person2023 |>
+  group_by(PER_TYPNAME, INJ_SEVNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = INJ_SEVNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
+## Person Type
+```{r}
+person2023 |>
+  count(PER_TYPNAME)
+
+person2023 |>
+  group_by(PER_TYPNAME, DRINKINGNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = DRINKINGNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
+
+## Alcohol
+```{r}
+person2023 |>
+  count(ALC_RESNAME)
+
+person2023 |>
+  count(DRINKINGNAME)
+
+person2023 |>
+  group_by(PER_TYPNAME, DRINKINGNAME) |>
+  summarise(n = n(), .groups = "drop") |>
+  pivot_wider(
+    names_from  = DRINKINGNAME,
+    values_from = n,
+    values_fill = 0
+  )
+```
+
+
+## Drugs
+```{r}
+drugtype <- drugs2023 |> 
+  group_by(DRUGRESNAME) |> 
+  summarise(n = n()) |> 
+  mutate(percent = n / sum(n))
+drugtype
+
+drugs2023 |>
+  count(DRUGRESNAME)
+```
+
+# Pretty Pictures
+```{r}
+accident2023noLat <- accident2023 |>
+  filter(STATENAME != "Alaska",
+         LATITUDE > 24, LATITUDE < 72,
+         LONGITUD > -180, LONGITUD < -65)
+
+
+my_sf <- st_as_sf(accident2023noLat, coords = c('LONGITUD', 'LATITUDE'))
+
+my_sf <- st_set_crs(my_sf, 4326)
+
+#Plot it:
+
+ggplot(my_sf) + 
+  geom_sf(aes(color = STATENAME), size = 0.01) +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+accident2023seattle <- accident2023 |>
+  filter(STATENAME == "Connecticut",
+         LATITUDE > 24, LATITUDE < 72,
+         LONGITUD > -180, LONGITUD < -65)
+
+axSeattleMap <- st_as_sf(accident2023seattle, coords = c('LONGITUD', 'LATITUDE'))
+
+axSeattleMap <- st_set_crs(axSeattleMap, 4326)
+
+#Plot it:
+
+ggplot(axSeattleMap) + 
+  geom_sf(aes(color = FATALS), size = 1)
+
 ```
 
