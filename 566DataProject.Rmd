@@ -41,6 +41,12 @@ vission2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/vision.csv")
 drugs2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/drugs.csv")
 ```
 
+```{r}
+accident2023 %>%
+  count(ARR_HOUR)
+```
+
+
 # Cleaning
 ## Setting Up Variables to Keep
 ```{r}
@@ -52,6 +58,11 @@ vision_keep <- c("VISION")
 fact_keep <- c("VEHICLECC")
 dist_keep <- c("DRDISTRACT")
 NMCC_keep <- c("NMCC")
+```
+
+```{r}
+accident2023 %>%
+  count(DAY)
 ```
 
 ## Triming Files
@@ -462,7 +473,7 @@ crashes2023 <- crashes2023 %>%
 
 # Dropping Variables used to construct other variables but we don't want
 crashes2023 <- crashes2023 %>%
-  select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO, -DEATH_DA, -DEATH_HR, -DEATH_MN, DEATH_TM, -ARR_HOUR, -ARR_MIN, LAG_HRS, LAG_MINS)
+  select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO, -DEATH_DA, -DEATH_HR, -DEATH_MN, -DEATH_TM, -ARR_HOUR, -ARR_MIN, -LAG_HRS, -LAG_MINS)
 
 # Dropping Non-predictive variables for the victm
 crashes2023 <- crashes2023 %>%
@@ -515,7 +526,7 @@ importYears <- function(start, end, files, fileLoc)
 
 ## Triming Files
 ```{r}
-trimYear <- function(crash_data, year, var_map) {
+trimYear <- function(crash_data, year, var_map, merging_Vars) {
   # Trims a single year of data to only the columns needed for analysis
   # ====================================================================
   # Inputs
@@ -526,12 +537,12 @@ trimYear <- function(crash_data, year, var_map) {
   # - named list of trimmed data frames for the given year, keyed by filename
   Map(function(file, vars) {
     key <- paste0(year, "_", file)
-    crash_data[[key]] %>% select(any_of(c(merging_vars, vars)))
+    crash_data[[key]] %>% select(any_of(c(merging_Vars, vars)))
   }, names(var_map), var_map)
 }
 
 
-trimAllYears <- function(crash_data, start, end, var_map) {
+trimAllYears <- function(crash_data, start, end, var_map, merging_Vars) {
   # Trims all years of data to only the columns needed for analysis
   # ================================================================
   # Inputs
@@ -542,7 +553,7 @@ trimAllYears <- function(crash_data, start, end, var_map) {
   # Outputs
   # - nested named list keyed as result[["YYYY"]][["filename.csv"]]
   years <- start:end
-  result <- lapply(years, function(year) trimYear(crash_data, year, var_map))
+  result <- lapply(years, function(year) trimYear(crash_data, year, var_map, merging_Vars))
   names(result) <- years
   return(result)
 }
@@ -746,12 +757,15 @@ mergeYear <- function(df_list, personLVLName = "personLVL.csv") {
   df_list[["driverLVL.csv"]] <- processDriverData(df_list[[personLVLName]])
 
   # Step 4: join initiating vehicle and driver characteristics to each person
-  df_list[[personLVLName]] %>%
-    left_join(df_list[["VEHICLE.csv"]],   by = c("ST_CASE", "VEH_NO")) %>%
-    left_join(df_list[["driverLVL.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
+  initiating_vehicle <- df_list[["VEHICLE.csv"]] %>%
     left_join(df_list[["factor.csv"]],    by = c("ST_CASE", "VEH_NO")) %>%
     left_join(df_list[["distract.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
-    left_join(df_list[["vision.csv"]],   by = c("ST_CASE", "VEH_NO"))
+    left_join(df_list[["vision.csv"]],   by = c("ST_CASE", "VEH_NO")) %>%
+    left_join(df_list[["driverLVL.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
+    rename(CrashVehicle = VEH_NO)
+
+  df_list[[personLVLName]] %>%
+    left_join(initiating_vehicle,        by = "ST_CASE")
 }
 ```
 
@@ -767,28 +781,47 @@ addDerivedVariables <- function(crashes_df) {
   # Outputs
   # - data frame with two additional columns:
   #   - PED_DEATH: 1 if row is a pedestrian death, 0 otherwise
-  #   - EMSAD:     0 if person died within 5 min of crash, otherwise
-  #                minutes from crash to EMS arrival
+  #   - EMSAD:     -1 if crash, death, or EMS arrival time is unknown,
+  #                    canceled, or not applicable,
+  #                 0 if person died within 5 min of crash,
+  #                >0 minutes from crash to EMS arrival
 
   crashes_df %>%
     mutate(
       # --- PED_DEATH ---
       PED_DEATH = if_else(PER_TYP %in% c(5, 8) & INJ_SEV == 4, 1, 0),
 
+      # --- EMSAD: flag uncomputable cases ---
+      # Crash time: HOUR 99 = unknown, MINUTE 99 = unknown, DAY 99 = unknown
+      crash_time_unknown = HOUR == 99 | MINUTE == 99 | DAY == 99,
+      # EMS time: ARR_HOUR 88 = unknown/canceled/not arrived
+      #           ARR_MIN 99 = unknown, 98 = unknown if arrived,
+      #                    97 = canceled, 88 = not applicable/notified
+      ems_time_unknown = ARR_HOUR == 88 |
+                         ARR_MIN %in% c(99, 98, 97, 88),
+      # Death time: DEATH_YR 9999 = unknown, DEATH_HR 88 = not applicable,
+      #             DEATH_HR 99 = unknown, DEATH_MN 88 = not applicable,
+      #             DEATH_MN 99 = unknown
+      death_time_unknown = DEATH_YR == 9999 |
+                           DEATH_HR %in% c(88, 99) |
+                           DEATH_MN %in% c(88, 99),
+
       # --- EMSAD: build intermediate datetimes ---
+      # Substitute 0 for unknown times so make_datetime doesn't produce NA;
+      # these rows will be overwritten with -1 in the final EMSAD step
       crash_datetime = make_datetime(
         year  = YEAR,
         month = MONTH,
         day   = DAY,
-        hour  = HOUR,
-        min   = MINUTE
+        hour  = if_else(crash_time_unknown, 0L, HOUR),
+        min   = if_else(crash_time_unknown, 0L, MINUTE)
       ),
       death_datetime = make_datetime(
-        year  = DEATH_YR,
-        month = DEATH_MO,
-        day   = DEATH_DA,
-        hour  = DEATH_HR,
-        min   = DEATH_MN
+        year  = if_else(death_time_unknown, 0L, DEATH_YR),
+        month = if_else(death_time_unknown, 1L, DEATH_MO),
+        day   = if_else(death_time_unknown, 1L, DEATH_DA),
+        hour  = if_else(death_time_unknown, 0L, DEATH_HR),
+        min   = if_else(death_time_unknown, 0L, DEATH_MN)
       ),
       crash_to_death_min = as.numeric(
         difftime(death_datetime, crash_datetime, units = "mins")
@@ -802,13 +835,17 @@ addDerivedVariables <- function(crashes_df) {
       ),
 
       # --- EMSAD: final variable ---
-      EMSAD = if_else(
-        crash_to_death_min <= 5,
-        0,
-        crash_to_ems_min
+      # -1 = crash, death, or EMS time unknown, canceled, or not applicable
+      #  0 = died within 5 min of crash, EMS arrival irrelevant
+      # >0 = minutes from crash to EMS arrival
+      EMSAD = case_when(
+        crash_time_unknown | ems_time_unknown | death_time_unknown ~ -1,
+        crash_to_death_min <= 5                                    ~  0,
+        TRUE                                                       ~ crash_to_ems_min
       )
     ) %>%
     select(-crash_datetime, -death_datetime,
+           -crash_time_unknown, -ems_time_unknown, -death_time_unknown,
            -crash_to_death_min, -crash_total_min,
            -ems_total_min, -crash_to_ems_min)
 }
@@ -829,8 +866,8 @@ finalDrops <- function(crashes_df)
     # Dropping Predictors of outcome
     select(-PER_TYP, -INJ_SEV)%>%
     # Dropping Variables used to construct other variables but we don't want
-    select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO
-           , -DEATH_DA, -DEATH_HR, -DEATH_MN, -DEATH_TM, -ARR_HOUR,
+    select(-YEAR, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO,
+           -DEATH_DA, -DEATH_HR, -DEATH_MN, -DEATH_TM, -ARR_HOUR,
            -ARR_MIN, -LAG_HRS, -LAG_MINS) %>%
     # Dropping Non-predictive variables for the non-driver
     select(-SEX)
@@ -862,7 +899,7 @@ processYears <- function(fileLoc, startYear, endYear) {
   person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
                    "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
                    "LAG_HRS", "LAG_MINS")
-  cevenet_keep <- c("EVENTNUM", "")
+  cevenet_keep <- c("EVENTNUM", "VNUMBER1")
   vision_keep <- c("VISION")
   fact_keep <- c("VEHICLECC")
   dist_keep <- c("DRDISTRACT")
@@ -877,19 +914,21 @@ processYears <- function(fileLoc, startYear, endYear) {
   "distract.csv" = dist_keep,
   "nmcrash.csv"  = NMCC_keep,
   "vision.csv"   = vision_keep,
-  "cevent.csv"   =
+  "cevent.csv"   = cevenet_keep
   )
 
   # Import and trim all years
   trimmed_flat <- importYears(startYear, endYear, files, fileLoc) 
-  trimmed_flat <- trimAllYears(trimmed_flat, startYear, endYear, var_map)
+  trimmed_flat <- trimAllYears(trimmed_flat, startYear, endYear, var_map, merging_Vars)
 
   # Process, join within year, and stack all years
   all_years <- bind_rows(lapply(trimmed_flat, mergeYear))
 
   # Post-join derived variables and final column drops
-  all_years %>%
-    addDerivedVariables() %>%
+  all_years <- all_years %>%
+    addDerivedVariables()
+  
+  all_years %>% 
     finalDrops()
 }
 ```
@@ -897,10 +936,32 @@ processYears <- function(fileLoc, startYear, endYear) {
 # Data Possessing
 ```{r}
 fileLoc <- "../566 Project Data"
+
+crashes2023Test <- processYears(fileLoc, 2023, 2023)
 ```
+
+# 2023 Same Test
+It won't be entirely the same bc I fixed EMSAR
+```{r}
+colnames(crashes2023Test) == colnames(crashes2023)
+
+compare_cols <- function(df1, df2) {
+  common_cols <- intersect(names(df1), names(df2))
+  results <- sapply(common_cols, function(col) identical(df1[[col]], df2[[col]]))
+  list(
+    matches      = names(results[results]),
+    differences  = names(results[!results]),
+    total_match  = sum(results),
+    total_cols   = length(results)
+  )
+}
+
+compare_cols(crashes2023Test, crashes2023)
+```
+
 
 # Export
 ```{r}
-
+write.csv(crashes2023Test, "../566 Project Data/crashes2023Test.csv")
 ```
 
