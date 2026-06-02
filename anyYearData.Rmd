@@ -495,5 +495,5 @@ crashes2012to24 <- processYears(fileLoc, 2012, 2024)
 
 # Export
 ```{r}
-write.csv(crashes2020to24, "../566 Project Data/crashes2020to24.csv")
+write.csv(crashes2012to24, "../566 Project Data/crashes2012to24.csv")
 ```
