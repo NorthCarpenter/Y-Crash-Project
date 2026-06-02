@@ -465,7 +465,7 @@ processYears <- function(fileLoc, startYear, endYear) {
 ```{r}
 fileLoc <- "../566 Project Data"
 
-crashes2020to24 <- processYears(fileLoc, 2020, 2024)
+crashes2012to24 <- processYears(fileLoc, 2012, 2024)
 ```
 
 # Export
