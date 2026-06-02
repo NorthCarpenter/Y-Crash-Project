@@ -89,6 +89,13 @@ processNMCrash <- function(nm_df) {
   # Outputs
   # - trimmed data frame with ST_CASE, PER_NO, VEH_NO, and NMCCSimple
   
+  # Normalize legacy column name to NMCC before processing
+  if ("MTM_CRSH" %in% names(nm_df) && !"NMCC" %in% names(nm_df)) {
+    nm_df <- rename(nm_df, NMCC = MTM_CRSH)
+  } else if (!"NMCC" %in% names(nm_df)) {
+    stop("Input data frame must contain either 'NMCC' or 'MTM_CRSH' column.")
+  }
+  
   nm_df %>%
     mutate(NMCC = if_else(NMCC == 0, 101, NMCC)) %>%
     pivot_wider(
@@ -164,6 +171,12 @@ processMechanicalIssue <- function(factor_df) {
   # - factor_df: a single factor data frame with columns ST_CASE, VEH_NO, VEHICLECC
   # Outputs
   # - trimmed data frame with ST_CASE, VEH_NO, and MECISSUE
+  
+  if ("MFACTOR" %in% names(factor_df) && !"VEHICLECC" %in% names(factor_df)) {
+    factor_df <- rename(factor_df, VEHICLECC = MFACTOR)
+  } else if (!"VEHICLECC" %in% names(factor_df)) {
+    stop("Input data frame must contain either 'NMCC' or 'MTM_CRSH' column.")
+  }
 
   factor_df %>%
     mutate(VEHICLECC = if_else(VEHICLECC == 0, 101, VEHICLECC)) %>%
@@ -194,6 +207,12 @@ processDistraction <- function(distract_df) {
   # - distract_df: a single distract data frame with columns ST_CASE, VEH_NO, DRDISTRACT
   # Outputs
   # - trimmed data frame with ST_CASE, VEH_NO, and DISTRACT
+  
+  if ("MDRDSTRD" %in% names(distract_df) && !"DRDISTRACT" %in% names(distract_df)) {
+    distract_df <- rename(distract_df, DRDISTRACT = MDRDSTRD)
+  } else if (!"DRDISTRACT" %in% names(distract_df)) {
+    stop("Input data frame must contain either 'MDRDSTRD' or 'DRDISTRACT' column.")
+  }
 
   distract_df %>%
     mutate(DRDISTRACT = if_else(DRDISTRACT == 0, 101, DRDISTRACT)) %>%
@@ -225,6 +244,12 @@ processVision <- function(vision_df) {
   # - vision_df: a single vision data frame with columns ST_CASE, VEH_NO, VISION
   # Outputs
   # - trimmed data frame with ST_CASE, VEH_NO, and VIS
+  
+  if ("MVISOBSC" %in% names(vision_df) && !"VISION" %in% names(vision_df)) {
+    vision_df <- rename(vision_df, VISION = MVISOBSC)
+  } else if (!"VISION" %in% names(vision_df)) {
+    stop("Input data frame must contain either 'MVISOBSC' or 'VISION' column.")
+  }
 
   vision_df %>%
     mutate(VISION = if_else(VISION == 0, 101, VISION)) %>%
@@ -428,10 +453,10 @@ processYears <- function(fileLoc, startYear, endYear) {
                    "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
                    "LAG_HRS", "LAG_MINS")
   cevenet_keep <- c("EVENTNUM", "VNUMBER1")
-  vision_keep <- c("VISION")
-  fact_keep <- c("VEHICLECC")
-  dist_keep <- c("DRDISTRACT")
-  NMCC_keep <- c("NMCC")
+  vision_keep <- c("VISION", "MVISOBSC")
+  fact_keep <- c("VEHICLECC", "MFACTOR")
+  dist_keep <- c("DRDISTRACT", "MDRDSTRD")
+  NMCC_keep <- c("NMCC", "MTM_CRSH")
   
   # Map file names to their keep variables
   var_map <- list(
