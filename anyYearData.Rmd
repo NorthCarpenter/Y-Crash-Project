@@ -305,6 +305,16 @@ addDerivedVariables <- function(crashes_df) {
 
   crashes_df %>%
     mutate(
+      
+      # --- RUL_URB Handeling
+      
+      RUR_URB_Fix = case_when(
+        YEAR > 2014 ~ RUR_URB,
+        ROAD_FNC %in% c(1, 2, 3, 4, 5, 6, 9) ~ 1,
+        ROAD_FNC %in% c(11, 12, 13, 14, 15, 16, 19) ~ 2,
+        TRUE ~ 9
+      ),
+      
       # --- PED_DEATH ---
       PED_DEATH = if_else(PER_TYP %in% c(5, 8) & INJ_SEV == 4, 1, 0),
 
@@ -364,7 +374,8 @@ addDerivedVariables <- function(crashes_df) {
     select(-crash_datetime, -death_datetime,
            -crash_time_unknown, -ems_time_unknown, -death_time_unknown,
            -crash_to_death_min, -crash_total_min,
-           -ems_total_min, -crash_to_ems_min)
+           -ems_total_min, -crash_to_ems_min, -RUR_URB, -ROAD_FNC) %>%
+    rename(RUR_URB = RUR_URB_Fix)
 }
 ```
 
@@ -410,7 +421,7 @@ processYears <- function(fileLoc, startYear, endYear) {
   merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
   accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE",
                      "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND",
-                     "WEATHER", "ARR_HOUR", "ARR_MIN")
+                     "WEATHER", "ARR_HOUR", "ARR_MIN", "ROAD_FNC")
   vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP",
                     "VSURCOND", "P_CRASH1", "M_HARM")
   person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
