@@ -1,0 +1,203 @@
+---
+title: "RFCI"
+author: "Hansen Zhang"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(causalDisco)
+library(tidyverse)
+data <- read.csv("crashes2023.csv")
+```
+
+```{r}
+data <- data %>% select(-c(1:4, CrashVehicle, NMCCSimple, LAG_HRS, LAG_MINS, DEATH_TM, VSPD_LIM, DRUGS, TRAV_SP, DISTRACT, DR_DRUGS, EMSAD))
+```
+
+```{r}
+# 6 categories
+data$M_HARM <- dplyr::case_when(
+  data$M_HARM %in% c(98, 99)                        ~ NA_character_,
+  data$M_HARM == 8                                   ~ "pedestrian",
+  data$M_HARM %in% 1:7                               ~ "non_collision",
+  data$M_HARM %in% c(12, 14, 45, 51, 54, 55)        ~ "motor_vehicle",
+  data$M_HARM %in% c(9, 10, 11, 15, 49, 74)         ~ "other_non_motorist",
+  data$M_HARM %in% c(16, 17, 18, 73, 91)            ~ "falling_object",
+  data$M_HARM %in% c(19, 20, 21, 23:26, 30:35,
+                     38:43, 46, 48, 50, 52, 53,
+                     57:59, 72, 93, 44)             ~ "fixed_object",
+  TRUE                                               ~ NA_character_
+)
+```
+
+```{r}
+# 3 categories
+data$P_CRASH1 <- dplyr::case_when(
+  data$P_CRASH1 %in% c(0, 99)                    ~ NA_character_,
+  data$P_CRASH1 %in% c(1, 2, 3)                  ~ "straight_travel",
+  data$P_CRASH1 %in% c(4, 5, 7, 8, 9)            ~ "stopped_or_parking",
+  data$P_CRASH1 %in% c(6, 10, 11, 12, 13, 
+                        14, 15, 16, 17, 98)       ~ "complex_maneuver",
+  TRUE                                            ~ NA_character_
+)
+```
+
+```{r}
+# 3 categories
+data$VE_FORMS <- dplyr::case_when(
+  data$VE_FORMS == 1  ~ "single",
+  data$VE_FORMS == 2  ~ "two",
+  data$VE_FORMS >= 3  ~ "multiple",
+  TRUE                ~ NA_character_
+)
+```
+
+```{r}
+# 5 categories
+data$ROUTE <- dplyr::case_when(
+  data$ROUTE == 99                   ~ NA_character_,
+  data$ROUTE %in% c(1, 11)           ~ "interstate",
+  data$ROUTE %in% c(2, 3)            ~ "highway",
+  data$ROUTE %in% c(4, 5, 6, 12)     ~ "local",          # county/township/municipal
+  data$ROUTE %in% c(0, 96)           ~ "unsigned",       # not signed + not in inventory
+  data$ROUTE %in% c(10, 13, 95)      ~ "other",
+  TRUE                               ~ NA_character_
+)
+```
+
+```{r}
+# 6 categories
+data$WEATHER <- dplyr::case_when(
+  data$WEATHER %in% c(98, 99)       ~ NA_character_,
+  data$WEATHER == 1                  ~ "clear",
+  data$WEATHER == 10                 ~ "cloudy",
+  data$WEATHER == 2                  ~ "rain",
+  data$WEATHER %in% c(3, 4, 11, 12) ~ "frozen_precip",  # snow/sleet/freezing rain
+  data$WEATHER == 5                  ~ "fog",
+  data$WEATHER %in% c(6, 7, 8)      ~ "other",
+  TRUE                               ~ NA_character_
+)
+```
+
+```{r}
+# 3 categories
+data$PREV_ACC <- dplyr::case_when(
+  data$PREV_ACC %in% c(98, 99, 998) ~ NA_character_,
+  data$PREV_ACC == 0                 ~ "none",
+  data$PREV_ACC == 1                 ~ "one",
+  data$PREV_ACC >= 2                 ~ "multiple",
+  TRUE                               ~ NA_character_
+)
+```
+
+```{r}
+# 4 categories
+data$VPAVETYP <- dplyr::case_when(
+  data$VPAVETYP %in% c(8, 9)      ~ NA_character_,
+  data$VPAVETYP %in% c(1, 2, 3)   ~ "paved",        # concrete/asphalt/brick
+  data$VPAVETYP %in% c(4, 5)      ~ "unpaved",       # gravel/dirt
+  data$VPAVETYP == 0               ~ "non_trafficway",
+  data$VPAVETYP == 7               ~ "other",
+  TRUE                             ~ NA_character_
+)
+```
+
+```{r}
+# 5 categories
+data$VSURCOND <- dplyr::case_when(
+  data$VSURCOND %in% c(98, 99)     ~ NA_character_,  # missing
+  data$VSURCOND == 1                ~ "dry",
+  data$VSURCOND == 2                ~ "wet",
+  data$VSURCOND %in% c(3, 4, 10)   ~ "frozen",       # snow/ice/slush
+  data$VSURCOND %in% c(0,5,6,7,8,11) ~ "other",        # sand/water/oil/mud etc.
+  TRUE                               ~ NA_character_
+)
+```
+
+```{r}
+# 5 categories
+data$LGT_COND <- dplyr::case_when(
+  data$LGT_COND %in% c(8, 9)  ~ NA_character_,
+  data$LGT_COND == 1           ~ "daylight",
+  data$LGT_COND == 2           ~ "dark_unlit",
+  data$LGT_COND == 3           ~ "dark_lighted",
+  data$LGT_COND %in% c(4, 5)  ~ "dawn_dusk",
+  data$LGT_COND %in% c(6, 7)  ~ "dark_unknown",  # merge other into dark_unknown
+  TRUE                          ~ NA_character_
+)
+```
+
+```{r}
+# ── Convert missingness codes to NA ───────────────────────────────────────────
+
+# AGE; 4 categories
+data$AGE[data$AGE %in% c(998, 999)] <- NA
+
+# RUR_URB; 3 categories
+data$RUR_URB[data$RUR_URB %in% c(8, 9)] <- NA
+
+# RELJCT1; binary
+data$RELJCT1[data$RELJCT1 %in% c(8, 9)] <- NA
+
+# MECISSUE; binary
+data$MECISSUE[data$MECISSUE == 2] <- NA
+
+# VIS; binary
+data$VIS[data$VIS %in% c(2, 3)] <- NA
+
+# DR_AGE; 4 categories
+data$DR_AGE[data$DR_AGE %in% c(998, 999)] <- NA
+
+# DR_SEX; binary
+data$DR_SEX[data$DR_SEX %in% c(8, 9)] <- NA
+
+# ── Check missingness rates ───────────────────────────────────────────────────
+miss_rates <- sort(colMeans(is.na(data)) * 100, decreasing = TRUE)
+round(miss_rates, 1)
+```
+
+```{r}
+# ── Bin ordinal continuous variables ──────────────────────────────────────────
+data$AGE <- cut(data$AGE,
+                breaks = c(0, 15, 25, 64, Inf),
+                labels = c("child", "young_adult", "adult", "elderly"),
+                right  = TRUE)
+
+data$DR_AGE <- cut(data$DR_AGE,
+                breaks = c(0, 15, 25, 64, Inf),
+                labels = c("child", "young_adult", "adult", "elderly"),
+                right  = TRUE)
+```
+
+```{r}
+data <- as.data.frame(lapply(data, as.factor))
+```
+
+```{r}
+library(mice)
+
+# Run multiple imputation
+# m = number of imputed datasets (5 is standard)
+# method = "cart" works well for mixed variable types
+imputed <- mice(data,
+                m         = 1,
+                method    = "cart",
+                seed      = 42,
+                maxit     = 5,      # proper cycling, just one dataset
+                printFlag = TRUE)
+
+# Extract one complete dataset for RFCI
+# (for causal discovery we use a single completed dataset)
+data_complete <- complete(imputed, action = 1)
+
+# Verify no NAs remain
+stopifnot(sum(is.na(data_complete)) == 0)
+```
+
+```{r}
+write.csv(data_complete, "data_complete.csv", row.names = FALSE)
+```
+
