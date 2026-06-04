@@ -687,10 +687,10 @@ processYears <- function(fileLoc, startYear, endYear) {
 ```{r}
 fileLoc <- "../566 Project Data"
 
-crashes2012to24 <- processYears(fileLoc, 2012, 2024)
+crashes2023 <- processYears(fileLoc, 2023, 2023)
 ```
 
 # Export
 ```{r}
-write.csv(crashes2012to24, "../566 Project Data/crashes2012to24.csv")
+write.csv(crashes2023, "../566 Project Data/crashes2023.csv")
 ```
