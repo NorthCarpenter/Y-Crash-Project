@@ -11,7 +11,8 @@ library(tidyr)
 library(sf)
 library(ggplot2)
 library(lubridate)
-library(mice)
+library(missRanger)
+#library(mice)
 ```
 
 # Functions for all transformations and Merges.
@@ -133,8 +134,8 @@ processDriverData <- function(person_df) {
 
   person_df %>%
     filter(PER_TYP == 1) %>%
-    rename(DR_AGE = AGE, DR_SEX = SEX, DR_DRUGS = DRUGS) %>%
-    select(ST_CASE, VEH_NO, DR_AGE, DR_SEX, DR_DRUGS)
+    rename(DR_AGE = AGE, DR_SEX = SEX) %>%
+    select(ST_CASE, VEH_NO, DR_AGE, DR_SEX)
 }
 ```
 
@@ -285,16 +286,16 @@ mergeYear <- function(df_list, personLVLName = "personLVL.csv") {
   # - single flat person level data frame with initiating driver characteristics
 
   # Step 1: process all file level transformations
-  df_list[["nmcrash.csv"]]  <- processNMCrash(df_list[["nmcrash.csv"]])
+  #df_list[["nmcrash.csv"]]  <- processNMCrash(df_list[["nmcrash.csv"]])
   df_list[["factor.csv"]]   <- processMechanicalIssue(df_list[["factor.csv"]])
-  df_list[["distract.csv"]] <- processDistraction(df_list[["distract.csv"]])
+  #df_list[["distract.csv"]] <- processDistraction(df_list[["distract.csv"]])
   df_list[["vision.csv"]]   <- processVision(df_list[["vision.csv"]])
   df_list[["VEHICLE.csv"]]  <- processInitiatingVehicle(df_list[["cevent.csv"]], df_list[["VEHICLE.csv"]])
 
   # Step 2: build and save person level file into the list
   df_list[[personLVLName]] <- df_list[["PERSON.csv"]] %>%
-    left_join(df_list[["accident.csv"]], by = "ST_CASE") %>%
-    left_join(df_list[["nmcrash.csv"]],  by = c("ST_CASE", "VEH_NO", "PER_NO"))
+    left_join(df_list[["accident.csv"]], by = "ST_CASE") #%>%
+    #left_join(df_list[["nmcrash.csv"]],  by = c("ST_CASE", "VEH_NO", "PER_NO"))
 
   # Step 3: build driver level file from the person level file
   df_list[["driverLVL.csv"]] <- processDriverData(df_list[[personLVLName]])
@@ -302,7 +303,7 @@ mergeYear <- function(df_list, personLVLName = "personLVL.csv") {
   # Step 4: join initiating vehicle and driver characteristics to each person
   initiating_vehicle <- df_list[["VEHICLE.csv"]] %>%
     left_join(df_list[["factor.csv"]],    by = c("ST_CASE", "VEH_NO")) %>%
-    left_join(df_list[["distract.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
+    #left_join(df_list[["distract.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
     left_join(df_list[["vision.csv"]],   by = c("ST_CASE", "VEH_NO")) %>%
     left_join(df_list[["driverLVL.csv"]], by = c("ST_CASE", "VEH_NO")) %>%
     rename(CrashVehicle = VEH_NO)
@@ -349,63 +350,64 @@ addDerivedVariables <- function(crashes_df) {
       # --- PED_DEATH ---
       PED_DEATH = if_else(PER_TYP %in% c(5, 8) & INJ_SEV == 4, 1, 0),
 
-      # --- EMSAD: flag uncomputable cases ---
-      # Crash time: HOUR 99 = unknown, MINUTE 99 = unknown, DAY 99 = unknown
-      crash_time_unknown = HOUR == 99 | MINUTE == 99 | DAY == 99,
-      # EMS time: ARR_HOUR 88 = unknown/canceled/not arrived
-      #           ARR_MIN 99 = unknown, 98 = unknown if arrived,
-      #                    97 = canceled, 88 = not applicable/notified
-      ems_time_unknown = ARR_HOUR == 88 |
-                         ARR_MIN %in% c(99, 98, 97, 88),
-      # Death time: DEATH_YR 9999 = unknown, DEATH_HR 88 = not applicable,
-      #             DEATH_HR 99 = unknown, DEATH_MN 88 = not applicable,
-      #             DEATH_MN 99 = unknown
-      death_time_unknown = DEATH_YR == 9999 |
-                           DEATH_HR %in% c(88, 99) |
-                           DEATH_MN %in% c(88, 99),
-
-      # --- EMSAD: build intermediate datetimes ---
-      # Substitute 0 for unknown times so make_datetime doesn't produce NA;
-      # these rows will be overwritten with -1 in the final EMSAD step
-      crash_datetime = make_datetime(
-        year  = YEAR,
-        month = MONTH,
-        day   = DAY,
-        hour  = if_else(crash_time_unknown, 0L, HOUR),
-        min   = if_else(crash_time_unknown, 0L, MINUTE)
-      ),
-      death_datetime = make_datetime(
-        year  = if_else(death_time_unknown, 0L, DEATH_YR),
-        month = if_else(death_time_unknown, 1L, DEATH_MO),
-        day   = if_else(death_time_unknown, 1L, DEATH_DA),
-        hour  = if_else(death_time_unknown, 0L, DEATH_HR),
-        min   = if_else(death_time_unknown, 0L, DEATH_MN)
-      ),
-      crash_to_death_min = as.numeric(
-        difftime(death_datetime, crash_datetime, units = "mins")
-      ),
-      crash_total_min  = HOUR * 60 + MINUTE,
-      ems_total_min    = ARR_HOUR * 60 + ARR_MIN,
-      crash_to_ems_min = if_else(
-        ems_total_min >= crash_total_min,
-        ems_total_min - crash_total_min,
-        ems_total_min - crash_total_min + 1440
-      ),
-
-      # --- EMSAD: final variable ---
-      # -1 = crash, death, or EMS time unknown, canceled, or not applicable
-      #  0 = died within 5 min of crash, EMS arrival irrelevant
-      # >0 = minutes from crash to EMS arrival
-      EMSAD = case_when(
-        crash_time_unknown | ems_time_unknown | death_time_unknown ~ -1,
-        crash_to_death_min <= 5                                    ~  0,
-        TRUE                                                       ~ crash_to_ems_min
-      )
+      # # --- EMSAD: flag uncomputable cases ---
+      # # Crash time: HOUR 99 = unknown, MINUTE 99 = unknown, DAY 99 = unknown
+      # crash_time_unknown = HOUR == 99 | MINUTE == 99 | DAY == 99,
+      # # EMS time: ARR_HOUR 88 = unknown/canceled/not arrived
+      # #           ARR_MIN 99 = unknown, 98 = unknown if arrived,
+      # #                    97 = canceled, 88 = not applicable/notified
+      # ems_time_unknown = ARR_HOUR == 88 |
+      #                    ARR_MIN %in% c(99, 98, 97, 88),
+      # # Death time: DEATH_YR 9999 = unknown, DEATH_HR 88 = not applicable,
+      # #             DEATH_HR 99 = unknown, DEATH_MN 88 = not applicable,
+      # #             DEATH_MN 99 = unknown
+      # death_time_unknown = DEATH_YR == 9999 |
+      #                      DEATH_HR %in% c(88, 99) |
+      #                      DEATH_MN %in% c(88, 99),
+      # 
+      # # --- EMSAD: build intermediate datetimes ---
+      # # Substitute 0 for unknown times so make_datetime doesn't produce NA;
+      # # these rows will be overwritten with -1 in the final EMSAD step
+      # crash_datetime = make_datetime(
+      #   year  = YEAR,
+      #   month = MONTH,
+      #   day   = DAY,
+      #   hour  = if_else(crash_time_unknown, 0L, HOUR),
+      #   min   = if_else(crash_time_unknown, 0L, MINUTE)
+      # ),
+      # death_datetime = make_datetime(
+      #   year  = if_else(death_time_unknown, 0L, DEATH_YR),
+      #   month = if_else(death_time_unknown, 1L, DEATH_MO),
+      #   day   = if_else(death_time_unknown, 1L, DEATH_DA),
+      #   hour  = if_else(death_time_unknown, 0L, DEATH_HR),
+      #   min   = if_else(death_time_unknown, 0L, DEATH_MN)
+      # ),
+      # crash_to_death_min = as.numeric(
+      #   difftime(death_datetime, crash_datetime, units = "mins")
+      # ),
+      # crash_total_min  = HOUR * 60 + MINUTE,
+      # ems_total_min    = ARR_HOUR * 60 + ARR_MIN,
+      # crash_to_ems_min = if_else(
+      #   ems_total_min >= crash_total_min,
+      #   ems_total_min - crash_total_min,
+      #   ems_total_min - crash_total_min + 1440
+      # ),
+      # 
+      # # --- EMSAD: final variable ---
+      # # -1 = crash, death, or EMS time unknown, canceled, or not applicable
+      # #  0 = died within 5 min of crash, EMS arrival irrelevant
+      # # >0 = minutes from crash to EMS arrival
+      # EMSAD = case_when(
+      #   crash_time_unknown | ems_time_unknown | death_time_unknown ~ -1,
+      #   crash_to_death_min <= 5                                    ~  0,
+      #   TRUE                                                       ~ crash_to_ems_min
+      # )
     ) %>%
-    select(-crash_datetime, -death_datetime,
-           -crash_time_unknown, -ems_time_unknown, -death_time_unknown,
-           -crash_to_death_min, -crash_total_min,
-           -ems_total_min, -crash_to_ems_min, -RUR_URB, -ROAD_FNC) %>%
+    # select(-crash_datetime, -death_datetime,
+    #        -crash_time_unknown, -ems_time_unknown, -death_time_unknown,
+    #        -crash_to_death_min, -crash_total_min,
+    #        -ems_total_min, -crash_to_ems_min) %>%
+    select(-RUR_URB, -ROAD_FNC) %>%
     rename(RUR_URB = RUR_URB_Fix)
 }
 ```
@@ -561,21 +563,30 @@ bin <- function(crashes_df)
 
 ### Imputation
 ```{r}
-impute <- function(crashes_df)
-{
-  # Run multiple imputation
-  # m = number of imputed datasets (5 is standard)
-  # method = "cart" works well for mixed variable types
-  imputed <- mice(crashes_df,
-                  m         = 1,
-                  method    = "cart",
-                  seed      = 42,
-                  maxit     = 5,      # proper cycling, just one dataset
-                  printFlag = TRUE)
-  
-  # Extract one complete dataset for RFCI
-  # (for causal discovery we use a single completed dataset)
-  complete(imputed, action = 1)
+# impute <- function(crashes_df)
+# {
+#   # Run multiple imputation
+#   # m = number of imputed datasets (5 is standard)
+#   # method = "cart" works well for mixed variable types
+#   imputed <- mice(crashes_df,
+#                   m         = 1,
+#                   method    = "cart",
+#                   seed      = 42,
+#                   maxit     = 5,      # proper cycling, just one dataset
+#                   printFlag = TRUE)
+#   
+#   # Extract one complete dataset for RFCI
+#   # (for causal discovery we use a single completed dataset)
+#   complete(imputed, action = 1)
+# }
+
+impute <- function(crashes_df) {
+  missRanger::missRanger(
+    crashes_df,
+    seed      = 42,
+    num.trees = 100,    # reduce from ranger default of 500 for speed
+    verbose   = 1       # replaces printFlag
+  )
 }
 ```
 
@@ -630,16 +641,16 @@ processYears <- function(fileLoc, startYear, endYear) {
   accident_keep <- c("VE_FORMS", "MONTH", "DAY", "YEAR", "HOUR", "MINUTE",
                      "DAY_WEEK", "ROUTE", "RUR_URB", "RELJCT1", "LGT_COND",
                      "WEATHER", "ARR_HOUR", "ARR_MIN", "ROAD_FNC")
-  vehicle_keep <- c("TRAV_SP", "DR_DRINK", "PREV_ACC", "VSPD_LIM", "VPAVETYP",
+  vehicle_keep <- c("PREV_ACC", "VPAVETYP",
                     "VSURCOND", "P_CRASH1", "M_HARM")
-  person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DRUGS", "DEATH_MO",
+  person_keep <- c("AGE", "SEX", "PER_TYP", "INJ_SEV", "DEATH_MO",
                    "DEATH_DA", "DEATH_YR", "DEATH_TM", "DEATH_HR", "DEATH_MN",
                    "LAG_HRS", "LAG_MINS")
   cevenet_keep <- c("EVENTNUM", "VNUMBER1")
   vision_keep <- c("VISION", "MVISOBSC")
   fact_keep <- c("VEHICLECC", "MFACTOR")
-  dist_keep <- c("DRDISTRACT", "MDRDSTRD")
-  NMCC_keep <- c("NMCC", "MTM_CRSH")
+  #dist_keep <- c("DRDISTRACT", "MDRDSTRD")
+  #NMCC_keep <- c("NMCC", "MTM_CRSH")
   
   # Map file names to their keep variables
   var_map <- list(
@@ -647,8 +658,8 @@ processYears <- function(fileLoc, startYear, endYear) {
   "VEHICLE.csv"  = vehicle_keep,
   "PERSON.csv"   = person_keep,
   "factor.csv"   = fact_keep,
-  "distract.csv" = dist_keep,
-  "nmcrash.csv"  = NMCC_keep,
+  #"distract.csv" = dist_keep,
+  #"nmcrash.csv"  = NMCC_keep,
   "vision.csv"   = vision_keep,
   "cevent.csv"   = cevenet_keep
   )
