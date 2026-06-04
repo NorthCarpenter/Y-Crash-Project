@@ -11,6 +11,7 @@ library(tidyr)
 library(sf)
 library(ggplot2)
 library(lubridate)
+library(mice)
 ```
 
 # Functions for all transformations and Merges.
@@ -32,7 +33,7 @@ importYears <- function(start, end, files, fileLoc)
   combos <- expand.grid(year = years, file = files, stringsAsFactors = FALSE)
   
   paths <- paste0(fileLoc, "/FARS", combos$year, "NationalCSV/", combos$file)
-  crashFiles <- lapply(paths, read.csv)
+  crashFiles <- lapply(paths, function(p) as.data.frame(data.table::fread(p)))
   
   # Preserve Names
   names(crashFiles) <- paste0(combos$year, "_", combos$file)
@@ -175,7 +176,7 @@ processMechanicalIssue <- function(factor_df) {
   if ("MFACTOR" %in% names(factor_df) && !"VEHICLECC" %in% names(factor_df)) {
     factor_df <- rename(factor_df, VEHICLECC = MFACTOR)
   } else if (!"VEHICLECC" %in% names(factor_df)) {
-    stop("Input data frame must contain either 'NMCC' or 'MTM_CRSH' column.")
+    stop("Input data frame must contain either 'MFACTOR' or 'VEHICLECC' column.")
   }
 
   factor_df %>%
@@ -312,6 +313,7 @@ mergeYear <- function(df_list, personLVLName = "personLVL.csv") {
 ```
 
 ## Full Data Variable Creation
+### RUL_URB, PED_DEATH, EMSAD
 ```{r}
 addDerivedVariables <- function(crashes_df) {
   # Adds person and crash level derived variables to the full dataset
@@ -327,6 +329,10 @@ addDerivedVariables <- function(crashes_df) {
   #                    canceled, or not applicable,
   #                 0 if person died within 5 min of crash,
   #                >0 minutes from crash to EMS arrival
+  
+  if (!"ROAD_FNC" %in% names(crashes_df)) {
+    crashes_df$ROAD_FNC <- NA_integer_
+  }
 
   crashes_df %>%
     mutate(
@@ -404,6 +410,175 @@ addDerivedVariables <- function(crashes_df) {
 }
 ```
 
+### Data Coarsening
+```{r}
+coarsen <- function(crashes_df)
+{
+  # 6 categories
+  crashes_df$M_HARM <- dplyr::case_when(
+    crashes_df$M_HARM %in% c(98, 99)                         ~ NA_character_,
+    crashes_df$M_HARM == 8                                   ~ "pedestrian",
+    crashes_df$M_HARM %in% 1:7                               ~ "non_collision",
+    crashes_df$M_HARM %in% c(12, 14, 45, 51, 54, 55)         ~ "motor_vehicle",
+    crashes_df$M_HARM %in% c(9, 10, 11, 15, 49, 74)          ~ "other_non_motorist",
+    crashes_df$M_HARM %in% c(16, 17, 18, 73, 91)             ~ "falling_object",
+    crashes_df$M_HARM %in% c(19, 20, 21, 23:26, 30:35,
+                       38:43, 46, 48, 50, 52, 53,
+                       57:59, 72, 93, 44)              ~ "fixed_object",
+    TRUE                                                ~ NA_character_
+    )
+  
+  # 3 categories
+  crashes_df$P_CRASH1 <- dplyr::case_when(
+    crashes_df$P_CRASH1 %in% c(0, 99)                    ~ NA_character_,
+    crashes_df$P_CRASH1 %in% c(1, 2, 3)                  ~ "straight_travel",
+    crashes_df$P_CRASH1 %in% c(4, 5, 7, 8, 9)            ~ "stopped_or_parking",
+    crashes_df$P_CRASH1 %in% c(6, 10, 11, 12, 13, 
+                          14, 15, 16, 17, 98)       ~ "complex_maneuver",
+    TRUE                                            ~ NA_character_
+    )
+  
+  # 3 categories
+  crashes_df$VE_FORMS <- dplyr::case_when(
+    crashes_df$VE_FORMS == 1  ~ "single",
+    crashes_df$VE_FORMS == 2  ~ "two",
+    crashes_df$VE_FORMS >= 3  ~ "multiple",
+    TRUE                ~ NA_character_
+  )
+  
+  # 5 categories
+  crashes_df$ROUTE <- dplyr::case_when(
+    crashes_df$ROUTE == 99                   ~ NA_character_,
+    crashes_df$ROUTE %in% c(1, 11)           ~ "interstate",
+    crashes_df$ROUTE %in% c(2, 3)            ~ "highway",
+    crashes_df$ROUTE %in% c(4, 5, 6, 12)     ~ "local",          # county/township/municipal
+    crashes_df$ROUTE %in% c(0, 96)           ~ "unsigned",       # not signed + not in inventory
+    crashes_df$ROUTE %in% c(10, 13, 95)      ~ "other",
+    TRUE                               ~ NA_character_
+  )
+  
+  # 6 categories
+  crashes_df$WEATHER <- dplyr::case_when(
+    crashes_df$WEATHER %in% c(98, 99)       ~ NA_character_,
+    crashes_df$WEATHER == 1                  ~ "clear",
+    crashes_df$WEATHER == 10                 ~ "cloudy",
+    crashes_df$WEATHER == 2                  ~ "rain",
+    crashes_df$WEATHER %in% c(3, 4, 11, 12) ~ "frozen_precip",  # snow/sleet/freezing rain
+    crashes_df$WEATHER == 5                  ~ "fog",
+    crashes_df$WEATHER %in% c(6, 7, 8)      ~ "other",
+    TRUE                               ~ NA_character_
+  )
+  
+  crashes_df$PREV_ACC <- dplyr::case_when(
+    crashes_df$PREV_ACC %in% c(98, 99, 998) ~ NA_character_,
+    crashes_df$PREV_ACC == 0                 ~ "none",
+    crashes_df$PREV_ACC == 1                 ~ "one",
+    crashes_df$PREV_ACC >= 2                 ~ "multiple",
+    TRUE                               ~ NA_character_
+  )
+  
+  # 4 categories
+  crashes_df$VPAVETYP <- dplyr::case_when(
+    crashes_df$VPAVETYP %in% c(8, 9)      ~ NA_character_,
+    crashes_df$VPAVETYP %in% c(1, 2, 3)   ~ "paved",        # concrete/asphalt/brick
+    crashes_df$VPAVETYP %in% c(4, 5)      ~ "unpaved",       # gravel/dirt
+    crashes_df$VPAVETYP == 0               ~ "non_trafficway",
+    crashes_df$VPAVETYP == 7               ~ "other",
+    TRUE                             ~ NA_character_
+  )
+  
+  # 5 categories
+  crashes_df$VSURCOND <- dplyr::case_when(
+    crashes_df$VSURCOND %in% c(98, 99)     ~ NA_character_,  # missing
+    crashes_df$VSURCOND == 1                ~ "dry",
+    crashes_df$VSURCOND == 2                ~ "wet",
+    crashes_df$VSURCOND %in% c(3, 4, 10)   ~ "frozen",       # snow/ice/slush
+    crashes_df$VSURCOND %in% c(0,5,6,7,8,11) ~ "other",        # sand/water/oil/mud etc.
+    TRUE                               ~ NA_character_
+  )
+  
+  # 5 categories
+  crashes_df$LGT_COND <- dplyr::case_when(
+    crashes_df$LGT_COND %in% c(8, 9)  ~ NA_character_,
+    crashes_df$LGT_COND == 1           ~ "daylight",
+    crashes_df$LGT_COND == 2           ~ "dark_unlit",
+    crashes_df$LGT_COND == 3           ~ "dark_lighted",
+    crashes_df$LGT_COND %in% c(4, 5)  ~ "dawn_dusk",
+    crashes_df$LGT_COND %in% c(6, 7)  ~ "dark_unknown",  # merge other into dark_unknown
+    TRUE                          ~ NA_character_
+  )
+  
+  return(crashes_df)
+}
+```
+
+### Missingness to NA
+```{r}
+missNA <- function(crashes_df)
+{
+  # AGE; 4 categories
+  crashes_df$AGE[crashes_df$AGE %in% c(998, 999)] <- NA
+  
+  # RUR_URB; 3 categories
+  crashes_df$RUR_URB[crashes_df$RUR_URB %in% c(8, 9)] <- NA
+  
+  # RELJCT1; binary
+  crashes_df$RELJCT1[crashes_df$RELJCT1 %in% c(8, 9)] <- NA
+  
+  # MECISSUE; binary
+  crashes_df$MECISSUE[crashes_df$MECISSUE == 2] <- NA
+  
+  # VIS; binary
+  crashes_df$VIS[crashes_df$VIS %in% c(2, 3)] <- NA
+  
+  # DR_AGE; 4 categories
+  crashes_df$DR_AGE[crashes_df$DR_AGE %in% c(998, 999)] <- NA
+  
+  # DR_SEX; binary
+  crashes_df$DR_SEX[crashes_df$DR_SEX %in% c(8, 9)] <- NA
+  
+  return(crashes_df)
+}
+```
+
+### Bin Ordinal
+```{r}
+bin <- function(crashes_df)
+{
+  crashes_df$AGE <- cut(crashes_df$AGE,
+                breaks = c(-1, 15, 25, 64, Inf),
+                labels = c("child", "young_adult", "adult", "elderly"),
+                right  = TRUE)
+
+  crashes_df$DR_AGE <- cut(crashes_df$DR_AGE,
+                  breaks = c(-1, 15, 25, 64, Inf),
+                  labels = c("child", "young_adult", "adult", "elderly"),
+                  right  = TRUE)
+  
+  return(crashes_df)
+}
+```
+
+### Imputation
+```{r}
+impute <- function(crashes_df)
+{
+  # Run multiple imputation
+  # m = number of imputed datasets (5 is standard)
+  # method = "cart" works well for mixed variable types
+  imputed <- mice(crashes_df,
+                  m         = 1,
+                  method    = "cart",
+                  seed      = 42,
+                  maxit     = 5,      # proper cycling, just one dataset
+                  printFlag = TRUE)
+  
+  # Extract one complete dataset for RFCI
+  # (for causal discovery we use a single completed dataset)
+  complete(imputed, action = 1)
+}
+```
+
 ## Drop unused variables
 ```{r}
 finalDrops <- function(crashes_df)
@@ -419,11 +594,19 @@ finalDrops <- function(crashes_df)
     # Dropping Predictors of outcome
     select(-PER_TYP, -INJ_SEV)%>%
     # Dropping Variables used to construct other variables but we don't want
-    select(, -MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO,
+    select(-MONTH, -DAY, -HOUR, -MINUTE, -DEATH_YR, -DEATH_MO,
            -DEATH_DA, -DEATH_HR, -DEATH_MN, -DEATH_TM, -ARR_HOUR,
            -ARR_MIN, -LAG_HRS, -LAG_MINS) %>%
     # Dropping Non-predictive variables for the non-driver
     select(-SEX)
+}
+```
+
+## Factorize
+```{r}
+factorize <- function(crashes_df) {
+  crashes_df %>%
+    mutate(across(where(is.character), as.factor))
 }
 ```
 
@@ -479,10 +662,13 @@ processYears <- function(fileLoc, startYear, endYear) {
 
   # Post-join derived variables and final column drops
   all_years <- all_years %>%
-    addDerivedVariables()
-  
-  all_years %>% 
-    finalDrops()
+    addDerivedVariables()%>%
+    missNA() %>%
+    bin() %>%
+    coarsen() %>%
+    finalDrops() %>%
+    factorize() %>%
+    impute()
 }
 ```
 
