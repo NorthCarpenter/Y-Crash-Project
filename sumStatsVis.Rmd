@@ -10,9 +10,17 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(dplyr)
 library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(gganimate)
+library(sf)
+library(maps)
+library(gifski)
 ```
 
+# Import Data
 
+## 2023
 ```{r, include=FALSE}
 # Importing Data
 # Clean Data
@@ -28,6 +36,92 @@ drugs2023 <- read.csv("../566 Project Data/FARS2023NationalCSV/drugs.csv")
 
 colnames(crash2023)
 ```
+
+## Positional Data
+```{r}
+fileLoc <- "../566 Project Data"
+
+files <- c("accident.csv")
+
+merging_Vars <- c("ST_CASE", "VEH_NO", "PER_NO")
+
+accident_keep <- c("LATITUDE", "LONGITUD", "FATALS", "MONTH", "DAY", "YEAR", "ST_CASE", "STATE")
+
+var_map <- list(
+  "accident.csv" = accident_keep
+)
+
+importYears <- function(start, end, files, fileLoc)
+{
+  # Imports CSVs for a range of years into a named list
+  # ====================================================
+  # Inputs
+  # - start:   start year of data as integer
+  # - end:     end year of data as integer
+  # - files:   character vector of CSV filenames (e.g. "accident.csv")
+  # - fileLoc: path to the project data folder
+  # Outputs
+  # - named list of data frames, keyed as "YYYY_filename.csv"
+  years <- start:end
+  combos <- expand.grid(year = years, file = files, stringsAsFactors = FALSE)
+  
+  paths <- paste0(fileLoc, "/FARS", combos$year, "NationalCSV/", combos$file)
+  crashFiles <- lapply(paths, function(p) as.data.frame(data.table::fread(p)))
+  
+  # Preserve Names
+  names(crashFiles) <- paste0(combos$year, "_", combos$file)
+  
+  return(crashFiles)
+}
+
+trimYear <- function(crash_data, year, var_map, merging_Vars) {
+  # Trims a single year of data to only the columns needed for analysis
+  # ====================================================================
+  # Inputs
+  # - crash_data: named list of data frames from importYears
+  # - year:       integer year to trim
+  # - var_map:    named list mapping filenames to their keep variables
+  # Outputs
+  # - named list of trimmed data frames for the given year, keyed by filename
+  Map(function(file, vars) {
+    key <- paste0(year, "_", file)
+    crash_data[[key]] %>% select(any_of(c(merging_Vars, vars)))
+  }, names(var_map), var_map)
+}
+
+trimAllYears <- function(crash_data, start, end, var_map, merging_Vars) {
+  # Trims all years of data to only the columns needed for analysis
+  # ================================================================
+  # Inputs
+  # - crash_data: named list of data frames from importYears
+  # - start:      start year of data as integer
+  # - end:        end year of data as integer
+  # - var_map:    named list mapping filenames to their keep variables
+  # Outputs
+  # - nested named list keyed as result[["YYYY"]][["filename.csv"]]
+  years <- start:end
+  result <- lapply(years, function(year) trimYear(crash_data, year, var_map, merging_Vars))
+  names(result) <- years
+  return(result)
+}
+
+trimmed_flat <- importYears(2012, 2024, files, fileLoc) 
+trimmed_flat <- trimAllYears(trimmed_flat, 2012, 2024, var_map, merging_Vars)
+
+all_accidents <- bind_rows(trimmed_flat)
+all_accidents <- all_accidents[[1]]
+
+rm(trimmed_flat)
+```
+
+```{r}
+all_accidents |>
+  group_by(YEAR, ST_CASE) |>
+  filter(n() > 1) |>
+  ungroup()
+```
+
+
 
 # Data Overiview
 
@@ -188,5 +282,150 @@ axSeattleMap <- st_set_crs(axSeattleMap, 4326)
 ggplot(axSeattleMap) + 
   geom_sf(aes(color = FATALS), size = 1)
 
+```
+
+## Gifs
+```{r}
+head(all_accidents)
+```
+
+### Drop Unknown
+```{r}
+rall_accidents <- all_accidents %>%
+  filter(
+    MONTH != 99,
+    DAY != 99,
+    STATE != 15 & STATE != 2 & STATE != 43,
+    LATITUDE > 24, LATITUDE < 72,
+    LONGITUD > -180, LONGITUD < -65
+  )
+```
+
+```{r}
+rm(all_accidents)
+```
+
+### Date Time
+```{r}
+rall_accidents <- rall_accidents |>
+  mutate(date = make_date(YEAR, MONTH, DAY))
+
+head(rall_accidents)
+```
+### LatLong
+```{r}
+map_accidents <- st_as_sf(rall_accidents, coords = c('LONGITUD', 'LATITUDE'))
+
+map_accidents <- st_set_crs(map_accidents, 4326)
+
+head(map_accidents)
+```
+
+
+### Animation Function
+```{r}
+animateAccidents <- function(accidents, state = 0){
+  if(state != 0){
+    accidents <- accidents %>%
+      filter(STATE == state)
+  }
+  
+  accidents <- accidents %>%
+    mutate(
+      expire_date = pmin(date %m+% years(12), as.Date("2025-01-01"))
+    )
+
+  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = FATALS)) +
+    geom_point(size = 1) +
+    coord_map("albers", lat0 = 30, lat1 = 45) +
+    transition_events(
+      start = date,
+      end = expire_date,
+      enter_length = as.difftime(30, units = "days"),
+      exit_length = as.difftime(1, units = "days")
+    ) +
+    enter_fade() +
+    labs(title = "Date: {frame_time}") +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  anim <- animate(plot, 
+                  nframes = 144, 
+                  fps = 10, 
+                  duration = 14, 
+                  renderer = gifski_renderer(paste0(state, "animation.gif")))
+    
+  return(anim)
+}
+
+animateAccidents(rall_accidents, 53)
+```
+
+
+```{r}
+animateAccidentsState <- function(accidents, state = 0){
+  
+  # FIPS code to state name lookup
+  fips_to_state <- c(
+    "1" = "alabama", "2" = "alaska", "4" = "arizona", "5" = "arkansas",
+    "6" = "california", "8" = "colorado", "9" = "connecticut", "10" = "delaware",
+    "11" = "district of columbia", "12" = "florida", "13" = "georgia",
+    "15" = "hawaii", "16" = "idaho", "17" = "illinois", "18" = "indiana",
+    "19" = "iowa", "20" = "kansas", "21" = "kentucky", "22" = "louisiana",
+    "23" = "maine", "24" = "maryland", "25" = "massachusetts", "26" = "michigan",
+    "27" = "minnesota", "28" = "mississippi", "29" = "missouri", "30" = "montana",
+    "31" = "nebraska", "32" = "nevada", "33" = "new hampshire", "34" = "new jersey",
+    "35" = "new mexico", "36" = "new york", "37" = "north carolina", "38" = "north dakota",
+    "39" = "ohio", "40" = "oklahoma", "41" = "oregon", "42" = "pennsylvania",
+    "44" = "rhode island", "45" = "south carolina", "46" = "south dakota",
+    "47" = "tennessee", "48" = "texas", "49" = "utah", "50" = "vermont",
+    "51" = "virginia", "53" = "washington", "54" = "west virginia",
+    "55" = "wisconsin", "56" = "wyoming"
+  )
+  
+  if(state != 0){
+    accidents <- accidents %>%
+      filter(STATE == state)
+    state_name <- fips_to_state[as.character(state)]
+    map_outline <- map_data("state", region = state_name)
+  } else {
+    map_outline <- map_data("state")  # full contiguous US
+  }
+  
+  accidents <- accidents %>%
+    mutate(
+      expire_date = pmin(date %m+% years(4), as.Date("2025-01-01"))
+    )
+
+  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = FATALS)) +
+    geom_polygon(data = map_outline, aes(x = long, y = lat, group = group),
+                 fill = NA, color = "black", inherit.aes = FALSE) +  # state outline
+    geom_point(size = 1) +
+    coord_map("albers", lat0 = 30, lat1 = 45) +
+    transition_events(
+      start = date,
+      end = expire_date,
+      enter_length = as.difftime(30, units = "days"),
+      exit_length = as.difftime(1, units = "days")
+    ) +
+    enter_fade() +
+    labs(title = "Date: {frame_time}") +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank())
+  
+  anim <- animate(plot, 
+          nframes = 144, 
+          fps = 10,
+          duration = 14,
+          renderer = gifski_renderer(paste0(state, "animationBound.gif")))
+    
+  return(anim)
+}
+
+animateAccidentsState(rall_accidents, 53)
 ```
 
