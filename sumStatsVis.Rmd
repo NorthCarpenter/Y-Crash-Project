@@ -16,6 +16,7 @@ library(gganimate)
 library(sf)
 library(maps)
 library(gifski)
+library(mapproj)
 ```
 
 # Import Data
@@ -360,7 +361,7 @@ animateAccidents <- function(accidents, state = 0){
   return(anim)
 }
 
-animateAccidents(rall_accidents, 53)
+animateAccidents(rall_accidents, 17)
 ```
 
 
@@ -426,6 +427,6 @@ animateAccidentsState <- function(accidents, state = 0){
   return(anim)
 }
 
-animateAccidentsState(rall_accidents, 53)
+animateAccidentsState(rall_accidents, 0)
 ```
 
