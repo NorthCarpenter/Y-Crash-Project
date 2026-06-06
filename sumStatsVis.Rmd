@@ -25,7 +25,7 @@ library(mapproj)
 ```{r, include=FALSE}
 # Importing Data
 # Clean Data
-crash2023 <-read.csv("../566 Project Data/crashes2023.csv")
+crash2023 <- read.csv("../566 Project Data/crashes2023.csv")
 head(crash2023)
 crash2023 <- crash2023 %>%
   select(-X)
@@ -432,6 +432,6 @@ animateAccidentsState(rall_accidents,0)
 
 # Actual Data Overview
 ```{r}
-
+crashdata <- read.csv("../566 Project Data/crashes2023.csv")
 ```
 
