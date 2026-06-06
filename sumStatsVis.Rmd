@@ -427,6 +427,6 @@ animateAccidentsState <- function(accidents, state = 0){
   return(anim)
 }
 
-animateAccidentsState(rall_accidents, 0)
+animateAccidentsState(rall_accidents, 48)
 ```
 
