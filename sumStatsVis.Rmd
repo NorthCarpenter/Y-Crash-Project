@@ -333,11 +333,11 @@ animateAccidents <- function(accidents, state = 0){
   
   accidents <- accidents %>%
     mutate(
-      expire_date = pmin(date %m+% years(12), as.Date("2025-01-01"))
+      expire_date = pmin(date %m+% years(4), as.Date("2025-01-01"))
     )
 
-  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = FATALS)) +
-    geom_point(size = 1) +
+  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = STATE)) +
+    geom_point(size = 1, alpha = 0.3, shape = 16, show.legend = FALSE) +
     coord_map("albers", lat0 = 30, lat1 = 45) +
     transition_events(
       start = date,
@@ -361,7 +361,7 @@ animateAccidents <- function(accidents, state = 0){
   return(anim)
 }
 
-animateAccidents(rall_accidents, 17)
+animateAccidents(rall_accidents, 0)
 ```
 
 
@@ -400,10 +400,10 @@ animateAccidentsState <- function(accidents, state = 0){
       expire_date = pmin(date %m+% years(4), as.Date("2025-01-01"))
     )
 
-  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = FATALS)) +
+  plot <- ggplot(accidents, aes(x = LONGITUD, y = LATITUDE, color = STATE)) +
     geom_polygon(data = map_outline, aes(x = long, y = lat, group = group),
                  fill = NA, color = "black", inherit.aes = FALSE) +  # state outline
-    geom_point(size = 1) +
+    geom_point(size = 1, alpha = 0.6, shape = 16, show.legend = FALSE) +
     coord_map("albers", lat0 = 30, lat1 = 45) +
     transition_events(
       start = date,
@@ -427,6 +427,6 @@ animateAccidentsState <- function(accidents, state = 0){
   return(anim)
 }
 
-animateAccidentsState(rall_accidents, 48)
+animateAccidentsState(rall_accidents,0)
 ```
 
