@@ -430,3 +430,8 @@ animateAccidentsState <- function(accidents, state = 0){
 animateAccidentsState(rall_accidents,0)
 ```
 
+# Actual Data Overview
+```{r}
+
+```
+
