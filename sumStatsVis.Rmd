@@ -435,3 +435,8 @@ animateAccidentsState(rall_accidents,0)
 crashdata <- read.csv("../566 Project Data/crashes2023.csv")
 ```
 
+```{r}
+head(crashdata)
+```
+
+
