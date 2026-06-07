@@ -1,0 +1,73 @@
+---
+title: "Causal Discovery"
+author: "Hansen Zhang"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r}
+data_complete <- read.csv("data_complete.csv")
+data_complete <- data_complete[sample(nrow(data_complete), 50000), ]
+data_complete <- as.data.frame(lapply(data_complete, as.factor))  # add this
+data_int <- as.data.frame(lapply(data_complete, as.integer))
+```
+
+```{r}
+dm       <- data.matrix(data_int) - 1L
+nlev     <- sapply(data_complete, nlevels)
+suffStat <- list(dm = dm, nlev = nlev, adaptDF = FALSE)
+```
+
+```{r}
+library(pcalg)
+
+# ── 4. Run RFCI ───────────────────────────────────────────────────────────────
+set.seed(42)
+rfci_fit <- rfci(
+  suffStat  = suffStat,
+  indepTest = disCItest,
+  labels    = colnames(data_int),
+  alpha     = 0.05,
+  verbose = TRUE,
+  m.max = 3,
+  numCores = 8
+)
+```
+
+
+```{r}
+tiers <- c(
+  AGE=1, DR_AGE=1, DR_SEX=1,
+  DAY_WEEK=2, ROUTE=2, RUR_URB=2, RELJCT1=2,
+  LGT_COND=2, WEATHER=2, VPAVETYP=2, VSURCOND=2, MECISSUE=2,
+  DR_DRINK=3, PREV_ACC=3, P_CRASH1=3,
+  VE_FORMS=4, M_HARM=4, VIS=4,
+  PED_DEATH=5
+)
+
+vars <- colnames(data_complete)
+amat <- rfci_fit@amat
+
+for (i in seq_along(vars)) {
+  for (j in seq_along(vars)) {
+    if (i == j) next
+    # Edge exists and lower tier -> higher tier: enforce i -> j
+    if (amat[i, j] != 0 && tiers[vars[i]] < tiers[vars[j]]) {
+      amat[i, j] <- 2   # arrowhead at j
+      amat[j, i] <- 3   # tail at i
+    }
+  }
+}
+```
+
+```{r}
+# ── 6. Plot ───────────────────────────────────────────────────────────────────
+library(Rgraphviz)
+plot(rfci_fit)   # original PAG before tier enforcement
+```
+```{r}
+rfci_enforced <- rfci_fit
+rfci_enforced@amat <- amat
+plot(rfci_enforced)
+```
+
