@@ -6,10 +6,22 @@ output: pdf_document
 ---
 
 ```{r}
-data_complete <- read.csv("data_complete.csv")
-data_complete <- data_complete[sample(nrow(data_complete), 50000), ]
+library(dplyr)
+
+# data_complete <- read.csv("data_complete.csv")
+data_complete <- read.csv("../566 Project Data/crashes2012to24.csv")
+data_complete <- data_complete %>% select(-X, -ST_CASE, -VEH_NO, -PER_NO, -CrashVehicle, -M_HARM, -YEAR)
+data_complete <- data_complete %>%
+  mutate(across(where(is.double), ~ round(.x, 0)))
+data_complete <- data_complete[sample(nrow(data_complete), 100000), ]
 data_complete <- as.data.frame(lapply(data_complete, as.factor))  # add this
 data_int <- as.data.frame(lapply(data_complete, as.integer))
+```
+
+```{r}
+nlev <- sapply(data_int, function(x) length(unique(x)))
+sort(nlev, decreasing = TRUE)
+prod(nlev)
 ```
 
 ```{r}
@@ -19,18 +31,41 @@ suffStat <- list(dm = dm, nlev = nlev, adaptDF = FALSE)
 ```
 
 ```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+if (!require("graph", quietly = TRUE))
+    BiocManager::install("graph")
+
+if (!require("RBGL", quietly = TRUE))
+    BiocManager::install("RBGL")
+
+if (!require("Rgraphviz", quietly = TRUE))
+    BiocManager::install("Rgraphviz")
+
+```
+
+
+```{r}
+# Free ram
+```
+
+```{r}
+library(graph)
+library(RBGL)
 library(pcalg)
 
 # ── 4. Run RFCI ───────────────────────────────────────────────────────────────
 set.seed(42)
 rfci_fit <- rfci(
-  suffStat  = suffStat,
-  indepTest = disCItest,
-  labels    = colnames(data_int),
-  alpha     = 0.05,
-  verbose = TRUE,
-  m.max = 3,
-  numCores = 8
+  suffStat   = suffStat,
+  indepTest  = disCItest,
+  labels     = colnames(data_int),
+  alpha      = 0.05,
+  verbose    = TRUE,
+  m.max      = 3L,                  # integer, not double
+  skel.method = "stable.fast",      # required for numCores to work
+  numCores   = 1L
 )
 ```
 
