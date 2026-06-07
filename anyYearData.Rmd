@@ -13,6 +13,7 @@ library(ggplot2)
 library(lubridate)
 library(mice)
 library(sf)
+library(missRanger)
 ```
 
 # Functions for all transformations and Merges.
@@ -562,21 +563,13 @@ bin <- function(crashes_df)
 
 ### Imputation
 ```{r}
-impute <- function(crashes_df)
-{
-  # Run multiple imputation
-  # m = number of imputed datasets (5 is standard)
-  # method = "cart" works well for mixed variable types
-  imputed <- mice(crashes_df,
-                  m         = 1,
-                  method    = "cart",
-                  seed      = 42,
-                  maxit     = 5,      # proper cycling, just one dataset
-                  printFlag = TRUE)
-  
-  # Extract one complete dataset for RFCI
-  # (for causal discovery we use a single completed dataset)
-  complete(imputed, action = 1)
+impute <- function(crashes_df) {
+  missRanger::missRanger(
+    crashes_df,
+    seed      = 42,
+    num.trees = 100,    # reduce from ranger default of 500 for speed
+    verbose   = 1       # replaces printFlag
+  )
 }
 ```
 

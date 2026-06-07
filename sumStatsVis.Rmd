@@ -437,6 +437,14 @@ crashdata <- read.csv("../566 Project Data/crashes2023.csv")
 
 ```{r}
 head(crashdata)
+
+crashdata %>%
+  mutate(across(everything(), as.character)) %>%
+  pivot_longer(everything(), names_to = "column", values_to = "value") %>%
+  group_by(column) %>%
+  summarise(
+    num_unique  = n_distinct(value)
+  )
 ```
 
 
