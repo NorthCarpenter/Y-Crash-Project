@@ -13,7 +13,7 @@ data_complete <- read.csv("../566 Project Data/crashes2012to24.csv")
 data_complete <- data_complete %>% select(-X, -ST_CASE, -VEH_NO, -PER_NO, -CrashVehicle, -M_HARM, -YEAR)
 data_complete <- data_complete %>%
   mutate(across(where(is.double), ~ round(.x, 0)))
-data_complete <- data_complete[sample(nrow(data_complete), 100000), ]
+# data_complete <- data_complete[sample(nrow(data_complete), 100000), ]
 data_complete <- as.data.frame(lapply(data_complete, as.factor))  # add this
 data_int <- as.data.frame(lapply(data_complete, as.integer))
 ```
@@ -57,7 +57,7 @@ rfci_fit <- rfci(
   indepTest  = disCItest,
   labels     = colnames(data_int),
   alpha      = 0.05,
-  verbose    = TRUE,
+  verbose    = FALSE,
   m.max      = 3L,                  # integer, not double
   skel.method = "stable.fast",      # required for numCores to work
   numCores   = 1L
@@ -99,5 +99,9 @@ plot(rfci_fit)   # original PAG before tier enforcement
 rfci_enforced <- rfci_fit
 rfci_enforced@amat <- amat
 plot(rfci_enforced)
+```
+
+```{r}
+saveRDS(rfci_fit, file = "rfci_fit_1mil_2012_24.rds")
 ```
 
