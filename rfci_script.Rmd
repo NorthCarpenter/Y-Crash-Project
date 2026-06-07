@@ -45,11 +45,6 @@ if (!require("Rgraphviz", quietly = TRUE))
 
 ```
 
-
-```{r}
-# Free ram
-```
-
 ```{r}
 library(graph)
 library(RBGL)
