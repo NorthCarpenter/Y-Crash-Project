@@ -4,9 +4,6 @@ if (!require("BiocManager", quietly = TRUE))
 if (!require("dplyr", quietly = TRUE))
   install.packages("dplyr")
 
-if (!require("pcalg", quietly = TRUE))
-  install.packages("pcalg")
-
 if (!require("graph", quietly = TRUE))
   BiocManager::install("graph")
 
@@ -16,11 +13,15 @@ if (!require("RBGL", quietly = TRUE))
 if (!require("Rgraphviz", quietly = TRUE))
   BiocManager::install("Rgraphviz")
 
+if (!require("pcalg", quietly = TRUE))
+  install.packages("pcalg")
+
 library(dplyr)
 library(graph)
 library(RBGL)
-library(pcalg)
 library(Rgraphviz)
+library(pcalg)
+
 
 # ── 1. Load & clean data ──────────────────────────────────────────────────────
 data_complete <- read.csv("../566 Project Data/crashes2012to24.csv")
