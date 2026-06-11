@@ -39,8 +39,9 @@ To get this code to run correctly you need the following file structure. Code in
 
 ```{r}
 # ── 1. Run Import Data ───────────────────────────────────────────────────────────────
+set.seed(42)
 
-sampSize <- 250000 # sample size of this run
+sampSize <- 100000 # sample size of this run
 
 data_complete <- read.csv("../566 Project Data/crashes2012to24.csv") # raw prossessed Data
 data_complete <- data_complete %>% 
@@ -84,7 +85,7 @@ rfci_fit <- rfci(
 )
 ```
 ```{r}
-saveRDS(rfci_fit, file = "rfci_fit_250k_2012_24.rds")
+saveRDS(rfci_fit, file = "rfci_fit_100k_2012_24.rds")
 ```
 
 ```{r}
@@ -134,8 +135,8 @@ plot(rfci_enforced)
 Nice DAGS
 ```{r}
 # You can run this to grab the model so you don't have to rerun the whole file.
-# RDStoVis <- "rfci_fit_100k_2012_24.rds"
-RDStoVis <- "rfci_fit_250k_2012_24.rds"
+RDStoVis <- "rfci_fit_100k_2012_24.rds"
+# RDStoVis <- "rfci_fit_250k_2012_24.rds"
 
 visModel <- readRDS(RDStoVis) # Read in saved RDS file
 ```
@@ -152,6 +153,10 @@ amat_to_dot <- function(amat) {
   
   mark_str <- function(m) switch(as.character(m), "1"="odot", "2"="normal", "3"="none", "none")
   
+  for (nm in nms) {
+    lines <- c(lines, sprintf('  %s;', nm))
+  }
+  
   for (i in 1:(n-1)) {
     for (j in (i+1):n) {
       if (amat[i,j] != 0 || amat[j,i] != 0) {
@@ -166,9 +171,6 @@ amat_to_dot <- function(amat) {
   }
   paste(c(lines, "}"), collapse="\n")
 }
-
-
-
 ```
 
 ```{r}
