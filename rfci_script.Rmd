@@ -102,6 +102,12 @@ plot(rfci_enforced)
 ```
 
 ```{r}
-saveRDS(rfci_fit, file = "rfci_fit_1mil_2012_24.rds")
+saveRDS(rfci_fit, file = "rfci_fit_250k_2012_24.rds")
 ```
+
+Nice DAGS
+```{r}
+twofidy <- readRDS("rfci_fit_250k_2012_24.rds")
+```
+
 
