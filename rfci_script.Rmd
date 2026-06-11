@@ -32,6 +32,9 @@ library(pcalg)
 library(rsvg)
 ```
 
+__!!! Important !!!__
+To get this code to run correctly you need the following file structure. Code in a folder and data in a folder on the  same level. Do not change the name of the data folder. You can use any name for the code folder. The code expects files to be referenced from the code folder.
+
 # Data
 
 ```{r}
@@ -131,8 +134,8 @@ plot(rfci_enforced)
 Nice DAGS
 ```{r}
 # You can run this to grab the model so you don't have to rerun the whole file.
-RDStoVis <- "rfci_fit_100k_2012_24.rds"
-# RDStoVis <- "rfci_fit_250k_2012_24.rds"
+# RDStoVis <- "rfci_fit_100k_2012_24.rds"
+RDStoVis <- "rfci_fit_250k_2012_24.rds"
 
 visModel <- readRDS(RDStoVis) # Read in saved RDS file
 ```
