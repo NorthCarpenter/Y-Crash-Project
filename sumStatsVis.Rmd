@@ -316,6 +316,7 @@ rall_accidents <- rall_accidents |>
 
 head(rall_accidents)
 ```
+
 ### LatLong
 ```{r}
 map_accidents <- st_as_sf(rall_accidents, coords = c('LONGITUD', 'LATITUDE'))
@@ -324,7 +325,6 @@ map_accidents <- st_set_crs(map_accidents, 4326)
 
 head(map_accidents)
 ```
-
 
 ### Animation Function
 ```{r}
@@ -433,9 +433,9 @@ animateAccidentsState <- function(accidents, state = 0){
 animateAccidentsState(rall_accidents,0)
 ```
 
-# Actual Data Overview
+# All Data Overview
 ```{r}
-crashdata <- read.csv("../566 Project Data/crashes2023.csv")
+crashdata <- read.csv("../566 Project Data/crashes2012_24.csv")
 ```
 
 ```{r}
