@@ -1,7 +1,7 @@
 ---
 title: "Summary Stats/Visualizations"
 author: "North Carpenter"
-date: "2026-05-26"
+date: "`r Sys.Date()`"
 output: html_document
 ---
 
@@ -18,6 +18,9 @@ library(maps)
 library(gifski)
 library(mapproj)
 ```
+
+__!!! Important !!!__
+To get this code to run correctly you need the following file structure. Code in a folder and data in a folder on the  same level. Do not change the name of the data folder. You can use any name for the code folder. The code expects files to be referenced from the code folder.
 
 # Import Data
 
@@ -446,5 +449,3 @@ crashdata %>%
     num_unique  = n_distinct(value)
   )
 ```
-
-
