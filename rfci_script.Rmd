@@ -5,51 +5,68 @@ date: "`r Sys.Date()`"
 output: pdf_document
 ---
 
-```{r}
-library(dplyr)
+```{r setup, include=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+if (!require("graph", quietly = TRUE))
+    BiocManager::install("graph")
+if (!require("RBGL", quietly = TRUE))
+    BiocManager::install("RBGL")
+if (!require("Rgraphviz", quietly = TRUE))
+    BiocManager::install("Rgraphviz")
+if (!require("dplyr", quietly = TRUE))
+    install.packages("dplyr")
+if (!require("DiagrammeR", quietly = TRUE))
+    install.packages("DiagrammeR")
+if (!require("pcalg", quietly = TRUE))
+    install.packages("pcalg")
+if (!require("rsvg", quietly = TRUE))
+    install.packages("rsvg")
 
-# data_complete <- read.csv("data_complete.csv")
-data_complete <- read.csv("../566 Project Data/crashes2012to24.csv")
-data_complete <- data_complete %>% select(-X, -ST_CASE, -VEH_NO, -PER_NO, -CrashVehicle, -M_HARM, -YEAR)
+library(dplyr)
+library(DiagrammeR)
+library(graph)
+library(RBGL)
+library(Rgraphviz)
+library(pcalg)
+library(rsvg)
+```
+
+# Data
+
+```{r}
+# ── 1. Run Import Data ───────────────────────────────────────────────────────────────
+
+sampSize <- 250000 # sample size of this run
+
+data_complete <- read.csv("../566 Project Data/crashes2012to24.csv") # raw prossessed Data
+data_complete <- data_complete %>% 
+  select(-X, -ST_CASE, -VEH_NO, -PER_NO, -CrashVehicle, -M_HARM, -YEAR) # drop unused/peffect outcome cor cols
 data_complete <- data_complete %>%
-  mutate(across(where(is.double), ~ round(.x, 0)))
-data_complete <- data_complete[sample(nrow(data_complete), 250000), ]
-data_complete <- as.data.frame(lapply(data_complete, as.factor))  # add this
-data_int <- as.data.frame(lapply(data_complete, as.integer))
+  mutate(across(where(is.double), ~ round(.x, 0))) # round since imputing leaves some tinny decimals
+data_complete <- data_complete[sample(nrow(data_complete), sampSize), ] # sample from data
+data_complete <- as.data.frame(lapply(data_complete, as.factor))  # all data as factors
+data_int <- as.data.frame(lapply(data_complete, as.integer)) # integer only data
 ```
 
 ```{r}
+# ── 2. Check Number of Cats ──────────────────────────────────────────────────────────
+
 nlev <- sapply(data_int, function(x) length(unique(x)))
 sort(nlev, decreasing = TRUE)
 prod(nlev)
 ```
 
 ```{r}
-dm       <- data.matrix(data_int) - 1L
-nlev     <- sapply(data_complete, nlevels)
-suffStat <- list(dm = dm, nlev = nlev, adaptDF = FALSE)
+# ── 2. DF to RFCI Format ────────────────────────────────────────────────────────────
+dm       <- data.matrix(data_int) - 1L # data matrix of integers shifted to 0
+nlev     <- sapply(data_complete, nlevels) # number of levels raw
+suffStat <- list(dm = dm, nlev = nlev, adaptDF = FALSE) # final data set up
 ```
 
-```{r}
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-
-if (!require("graph", quietly = TRUE))
-    BiocManager::install("graph")
-
-if (!require("RBGL", quietly = TRUE))
-    BiocManager::install("RBGL")
-
-if (!require("Rgraphviz", quietly = TRUE))
-    BiocManager::install("Rgraphviz")
-
-```
+# RFCI
 
 ```{r}
-library(graph)
-library(RBGL)
-library(pcalg)
-
 # ── 4. Run RFCI ───────────────────────────────────────────────────────────────
 set.seed(42)
 rfci_fit <- rfci(
@@ -63,9 +80,13 @@ rfci_fit <- rfci(
   numCores   = 1L
 )
 ```
-
+```{r}
+saveRDS(rfci_fit, file = "rfci_fit_250k_2012_24.rds")
+```
 
 ```{r}
+# ── 5. Orientation Enforcement ───────────────────────────────────────────────────────────
+
 tiers <- c(
   AGE=1, DR_AGE=1, DR_SEX=1,
   DAY_WEEK=2, ROUTE=2, RUR_URB=2, RELJCT1=2,
@@ -90,24 +111,120 @@ for (i in seq_along(vars)) {
 }
 ```
 
+# Visualizations
+## Simple
+
 ```{r}
 # ── 6. Plot ───────────────────────────────────────────────────────────────────
-library(Rgraphviz)
+# Plot without enforcement
 plot(rfci_fit)   # original PAG before tier enforcement
 ```
 ```{r}
+# Plot with enforcement
 rfci_enforced <- rfci_fit
 rfci_enforced@amat <- amat
 plot(rfci_enforced)
 ```
 
-```{r}
-saveRDS(rfci_fit, file = "rfci_fit_250k_2012_24.rds")
-```
+# Nice
 
 Nice DAGS
 ```{r}
-twofidy <- readRDS("rfci_fit_250k_2012_24.rds")
+# You can run this to grab the model so you don't have to rerun the whole file.
+RDStoVis <- "rfci_fit_100k_2012_24.rds"
+# RDStoVis <- "rfci_fit_250k_2012_24.rds"
+
+visModel <- readRDS(RDStoVis) # Read in saved RDS file
 ```
 
+```{r}
+# ── Plotting Function ────────────────────────────────────────────────
 
+amat_to_dot <- function(amat) {
+  n <- nrow(amat)
+  nms <- rownames(amat)
+  lines <- c("digraph PAG {", 
+             "  rankdir=LR;",
+             '  node [shape=ellipse, style=filled, fillcolor="#AED6F1"];')
+  
+  mark_str <- function(m) switch(as.character(m), "1"="odot", "2"="normal", "3"="none", "none")
+  
+  for (i in 1:(n-1)) {
+    for (j in (i+1):n) {
+      if (amat[i,j] != 0 || amat[j,i] != 0) {
+        arrow_tail <- mark_str(amat[j,i])  # mark at i's side
+        arrow_head <- mark_str(amat[i,j])  # mark at j's side
+        lines <- c(lines, sprintf(
+          '  %s -> %s [dir=both, arrowtail="%s", arrowhead="%s"];',
+          nms[i], nms[j], arrow_tail, arrow_head
+        ))
+      }
+    }
+  }
+  paste(c(lines, "}"), collapse="\n")
+}
+
+
+
+```
+
+```{r}
+# ── Plot ans Save Non-Enforced ────────────────────────────────────────────────
+
+plotType <- "not_enforced"
+PAGLoc <- paste0("plot_", plotType, "_", gsub("^rfci_fit_|\\.rds$", "", RDStoVis))
+
+dot_code <- amat_to_dot(visModel@amat)
+grViz(dot_code)
+
+svg_out <- DiagrammeRsvg::export_svg(grViz(dot_code))
+writeLines(svg_out, paste0(PAGLoc, ".svg")) # vector, infinitely scalable
+
+# For a 300dpi PNG:
+rsvg::rsvg_png(paste0(PAGLoc, ".svg"), paste0(PAGLoc, ".png"),
+               width = 3000, height = 2000)
+```
+
+```{r}
+# ── Orientation Enforcement (for import) ────────────────────────────────────────────────
+
+tiers <- c(
+  AGE=1, DR_AGE=1, DR_SEX=1,
+  DAY_WEEK=2, ROUTE=2, RUR_URB=2, RELJCT1=2,
+  LGT_COND=2, WEATHER=2, VPAVETYP=2, VSURCOND=2, MECISSUE=2,
+  DR_DRINK=3, PREV_ACC=3, P_CRASH1=3,
+  VE_FORMS=4, M_HARM=4, VIS=4,
+  PED_DEATH=5
+)
+
+vars <- colnames(visModel@amat)
+amat <- visModel@amat
+
+for (i in seq_along(vars)) {
+  for (j in seq_along(vars)) {
+    if (i == j) next
+    # Edge exists and lower tier -> higher tier: enforce i -> j
+    if (amat[i, j] != 0 && tiers[vars[i]] < tiers[vars[j]]) {
+      amat[i, j] <- 2   # arrowhead at j
+      amat[j, i] <- 3   # tail at i
+    }
+  }
+}
+```
+
+```{r}
+# ── Plot ans Save Enforced ─────────────────────────────────────────────────────────────
+
+plotType <- "enforced"
+PAGLoc <- paste0("plot_", plotType, "_", gsub("^rfci_fit_|\\.rds$", "", RDStoVis))
+
+dot_code_tier <- amat_to_dot(amat)
+grViz(dot_code)
+
+svg_out <- DiagrammeRsvg::export_svg(grViz(dot_code_tier))
+writeLines(svg_out, paste0(PAGLoc, ".svg")) # vector, infinitely scalable
+
+# For a 300dpi PNG:
+rsvg::rsvg_png(paste0(PAGLoc, ".svg"), paste0(PAGLoc, ".png"),
+               width = 3000, height = 2000)
+```
