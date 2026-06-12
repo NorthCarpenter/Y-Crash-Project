@@ -435,7 +435,7 @@ animateAccidentsState(rall_accidents,0)
 
 # All Data Overview
 ```{r}
-crashdata <- read.csv("../566 Project Data/crashes2012_24.csv")
+crashdata <- read.csv("../566 Project Data/crashes2012to24.csv")
 ```
 
 ```{r}
