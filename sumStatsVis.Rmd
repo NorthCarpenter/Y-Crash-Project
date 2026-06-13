@@ -16,6 +16,8 @@ library(gganimate)
 library(sf)
 library(maps)
 library(gifski)
+library(xtable)
+library(data.table)
 library(mapproj)
 ```
 
@@ -449,3 +451,35 @@ crashdata %>%
     num_unique  = n_distinct(value)
   )
 ```
+
+
+```{r}
+# Drop Unused
+crashdata <- crashdata %>% 
+  select(-X, -ST_CASE, -VEH_NO, -PER_NO, -CrashVehicle, -M_HARM, -YEAR)
+
+# Round columns
+crashdata <- crashdata %>%
+  mutate(across(where(is.double), ~ round(.x, 0))) # round since imputing leaves some tinny decimals
+
+
+# Factorize everything
+crashdata <- as.data.frame(lapply(crashdata, as.factor))  # all data as factors
+```
+
+```{r}
+sink("freq_tables.tex")
+for (col in names(crashdata)) {
+  tbl <- as.data.frame.matrix(t(prop.table(table(crashdata[[col]])) * 100))
+  rownames(tbl) <- col
+  print(
+    xtable(tbl, digits = 1, caption = paste("Frequencies:", col)),
+    include.rownames = TRUE,
+    booktabs = TRUE
+  )
+}
+sink()
+```
+
+
+
